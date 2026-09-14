@@ -1,0 +1,25 @@
+# Environment
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Model artifacts & data (too big / regenerable)
+*.pt
+*.ckpt
+*.safetensors
+src/checkpoints/*.png    # generated loss-curve plots (regenerated each run)
+# the checkpoints/ folder + its README are kept; the *.pt weights and *.png plots inside are ignored
+data/*.bin
+data/*.npy
+data/*.arrow
+
+# Notebooks / editors
+.ipynb_checkpoints/
+.DS_Store
+
+# Logs
+*.log
+runs/
+wandb/

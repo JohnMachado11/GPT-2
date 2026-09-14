@@ -1,0 +1,4 @@
+torch==2.14.0
+transformers==5.14.1   # GPT-2 BPE tokenizer + loading the real GPT-2 weights
+matplotlib==3.11.1     # loss-curve plot in src/run/train_on_text.py
+pytest==9.1.1          # test runner
