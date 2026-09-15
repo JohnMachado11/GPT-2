@@ -15,6 +15,10 @@ data/*.bin
 data/*.npy
 data/*.arrow
 
+# downloaded/large training corpora (keep the small demo sample.txt tracked)
+src/run/data/*.txt
+!src/run/data/sample.txt
+
 # Notebooks / editors
 .ipynb_checkpoints/
 .DS_Store
