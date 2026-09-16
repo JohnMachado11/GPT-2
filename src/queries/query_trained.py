@@ -16,7 +16,7 @@ print(f"loading {latest.name}")
 model = load_checkpoint(latest)
 tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
-prompt = "The lighthouse"
+prompt = "The Martians"
 token_ids = tokenizer.encode(prompt, return_tensors="pt")
 output = model.generate(token_ids, max_new_tokens=40, top_k=20)
 print("\n--- your model's continuation ---")
