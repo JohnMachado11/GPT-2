@@ -24,7 +24,8 @@ src/gpt2/
   train/         optimizer (AdamW), schedule (warmup+cosine), loop, data (the trainer)
   from_hf.py     load the real GPT-2 weights into this model            (the HF bridge)
   checkpoint.py  save / load / auto-name trained models                 (checkpointing)
-src/run/         train_on_text.py + data/*.txt                          (train → saves a checkpoint)
+src/run/         train_on_text.py, count_tokens.py, scaling_config.py   (train + size the model)
+                 + data/*.txt                                           (your training text)
 src/checkpoints/ your trained models + a how-to-read README             (.pt weights git-ignored)
 src/queries/     query_gpt2.py (real GPT-2) · query_trained.py (yours)  (prompt a model)
 src/playgrounds/ small scripts to poke each component                   (learning aids)
@@ -106,9 +107,43 @@ After step 2, `import gpt2` works for anything the venv's Python runs (tests, sc
 ## Use 1 — Train a GPT-2 from scratch on your own text
 
 **Where the data goes:** the example reads **every `.txt` file in `src/run/data/`** and tokenizes
-them into one training stream. To train on your own text, just **drop more `.txt` files into that
-folder** — a book, scraped articles, your notes, a web page's text — no code changes needed; they're
-concatenated automatically.
+each one. To train on your own text, just **drop more `.txt` files into that folder** — a book,
+scraped articles, your notes, a web page's text — no code changes needed. Each file is split
+**90% train / 10% validation on its own**, then the train pieces and the validation pieces are joined,
+so every file shows up in both sets (no matter how the files sort or how small one is).
+
+**Prerequisite — size the model to your data first.** Before training, run the token counter. It reads
+every `.txt` in `src/run/data/`, prints how many tokens you have, and (based on
+`src/run/scaling_config.py`) prints a **suggested config** to copy into `train_on_text.py`:
+
+```bash
+.venv/bin/python src/run/count_tokens.py
+```
+
+```
+Suggested config  (mode: minimum_viable)
+------------------------------------------------
+  embed_dim       128
+  num_layers      2
+  num_heads       2
+  dropout         0.1
+  batch_size      32
+  context_length  64
+  num_steps       830
+```
+
+`scaling_config.py` has one switch, `MODE`, with two philosophies:
+
+- **`"minimum_viable"`** — the smallest *usable* model (a floor of embed 128 · 2 layers · 2 heads),
+  over-trained a fixed number of epochs (`minimum_viable_epochs`). Best when your text is small: you get
+  coherent samples without a needlessly large model.
+- **`"chinchilla_exact"`** — the *compute-optimal* size for your token count (the Chinchilla rule of
+  ~20 training tokens per parameter, trained about one epoch). It **grows with your data** and recovers
+  real architectures — e.g. ~1.7B tokens suggests embed 768 · 12 layers · 12 heads, which **is** GPT-2
+  small.
+
+Copy the suggested `embed_dim` / `num_layers` / `num_heads` / `dropout` into the `GPTConfig`, and the
+`batch_size` / `num_steps` into the `train(...)` call (both shown below), then train.
 
 Run the bundled end-to-end example:
 
@@ -127,8 +162,8 @@ size, edit the config at the top of `src/run/train_on_text.py`:
 config = GPTConfig(
     vocab_size=tokenizer.vocab_size,        # 50257 (GPT-2 BPE)
     context_length=64,                      # tokens per window
-    embed_dim=128, num_layers=4, num_heads=4,  # model size — grow for more capacity
-    dropout=0.0,
+    embed_dim=128, num_layers=2, num_heads=2,  # model size — grow for more capacity
+    dropout=0.1,                            # GPT-2's value; regularizes against overfitting
 )
 ```
 

@@ -9,15 +9,16 @@ __pycache__/
 *.pt
 *.ckpt
 *.safetensors
-src/checkpoints/*.png    # generated loss-curve plots (regenerated each run)
+# generated loss-curve plots (regenerated each run)
+src/checkpoints/*.png
 # the checkpoints/ folder + its README are kept; the *.pt weights and *.png plots inside are ignored
 data/*.bin
 data/*.npy
 data/*.arrow
 
-# downloaded/large training corpora (keep the small demo sample.txt tracked)
+# downloaded training corpora (keep one book tracked so a fresh clone has something to train on)
 src/run/data/*.txt
-!src/run/data/sample.txt
+!src/run/data/the_war_of_the_worlds.txt
 
 # Notebooks / editors
 .ipynb_checkpoints/
