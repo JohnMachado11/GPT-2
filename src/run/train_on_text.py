@@ -70,6 +70,7 @@ history = train(
     max_learning_rate=1e-3,
     warmup_steps=50,
     min_learning_rate=1e-4,
+    max_gradient_norm=1.0,                  # GPT-3 paper's value; nanoGPT uses it for GPT-2 too
     val_data=val_data,
     device=device,
 )
