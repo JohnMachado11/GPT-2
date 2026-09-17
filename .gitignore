@@ -20,6 +20,9 @@ data/*.arrow
 src/run/data/*.txt
 !src/run/data/the_war_of_the_worlds.txt
 
+# personal notes & scratch artifacts (kept local, never pushed)
+notes/
+
 # Notebooks / editors
 .ipynb_checkpoints/
 .DS_Store

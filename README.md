@@ -168,7 +168,7 @@ config = GPTConfig(
 ```
 
 and the `train(...)` call's knobs (`batch_size`, `num_steps`, `max_learning_rate`, `warmup_steps`,
-`min_learning_rate`). That's the whole recipe: **text files → tokenize → build model → `train(...)` →
+`min_learning_rate`, `max_gradient_norm`). That's the whole recipe: **text files → tokenize → build model → `train(...)` →
 save → `generate(...)`.**
 
 **Every run saves the model.** Training writes a uniquely-named checkpoint to `src/checkpoints/` — e.g.
