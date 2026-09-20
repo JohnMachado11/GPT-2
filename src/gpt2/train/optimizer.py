@@ -9,7 +9,7 @@ class AdamW:
         momentum_decay=0.9,       # a.k.a. "beta1": how much old momentum to keep each step
         bumpiness_decay=0.999,    # a.k.a. "beta2": how much old bumpiness to keep each step
         epsilon=1e-8,             # tiny guard so we never divide by zero
-        weight_decay=0.01,        # strength of the gentle pull toward zero
+        weight_decay=0.1,         # pull toward zero; 0.1 from the GPT-3 paper + nanoGPT's GPT-2 retrain
     ):
         self.parameters = list(parameters)
         self.learning_rate = learning_rate
@@ -21,6 +21,11 @@ class AdamW:
         # one running-average per weight tensor, all starting at zeros
         self.momentum = [torch.zeros_like(p) for p in self.parameters]      # average of recent gradients
         self.bumpiness = [torch.zeros_like(p) for p in self.parameters]     # average of recent gradients squared
+        # Which tensors actually get weight decay. Standard GPT practice (nanoGPT does
+        # this) is to decay ONLY the 2-D weight matrices (embeddings, attention and
+        # feed-forward weights). Biases and LayerNorm scales are 1-D -- pulling those
+        # toward zero hurts, so they're left alone. True = decay it, False = skip it.
+        self.decayed = [parameter.dim() >= 2 for parameter in self.parameters]
 
     def zero_grad(self):
         for parameter in self.parameters:
@@ -34,9 +39,10 @@ class AdamW:
                 continue
             gradient = parameter.grad
 
-            # 1. gentle pull toward zero (weight decay)
-            parameter -= self.learning_rate * self.weight_decay * parameter
-
+            # 1. gentle pull toward zero (weight decay) -- 2-D weights only
+            if self.decayed[i]:
+                parameter -= self.learning_rate * self.weight_decay * parameter
+            
             # 2. update the running averages (momentum uses the gradient; bumpiness uses it SQUARED)
             self.momentum[i] = self.momentum_decay * self.momentum[i] + (1 - self.momentum_decay) * gradient
             self.bumpiness[i] = self.bumpiness_decay * self.bumpiness[i] + (1 - self.bumpiness_decay) * gradient ** 2

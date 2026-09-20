@@ -26,10 +26,7 @@ def train(
     max_learning_rate,
     warmup_steps,
     min_learning_rate,
-    max_gradient_norm,      # clip the total gradient size to this. 1.0 is the standard value:
-                            # it's what the GPT-3 paper states ("we clip the global norm of the
-                            # gradient at 1.0") and what nanoGPT uses to reproduce GPT-2. The GPT-2
-                            # paper itself never published a clipping value.
+    max_gradient_norm,      # cap the total gradient size; 1.0 from the GPT-3 paper + nanoGPT's GPT-2 retrain
     val_data=None,
     eval_interval=100,
     device="cpu"
