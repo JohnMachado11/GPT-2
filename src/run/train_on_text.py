@@ -58,7 +58,7 @@ model = GPT(config)
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 model.to(device)
 
-optimizer = AdamW(model.parameters(), weight_decay=0.01)
+optimizer = AdamW(model.parameters(), weight_decay=0.1)   # GPT-3 paper's value; nanoGPT's GPT-2 retrain
 
 history = train(
     model,
@@ -70,7 +70,7 @@ history = train(
     max_learning_rate=1e-3,
     warmup_steps=50,
     min_learning_rate=1e-4,
-    max_gradient_norm=1.0,                  # GPT-3 paper's value; nanoGPT uses it for GPT-2 too
+    max_gradient_norm=1.0,                  # GPT-3 paper's value; nanoGPT's GPT-2 retrain uses it
     val_data=val_data,
     device=device,
 )

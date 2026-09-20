@@ -11,8 +11,15 @@ def test_matches_pytorch_adamw_over_100_steps():
     reference.load_state_dict(mine.state_dict())
 
     my_opt = AdamW(mine.parameters(), learning_rate=1e-2, weight_decay=0.01)
-    ref_opt = torch.optim.AdamW(reference.parameters(), lr=1e-2,
-                                betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01)
+    # Our AdamW decays only the 2-D weight matrices, so PyTorch has to be given the
+    # SAME split -- two param groups -- or the bias alone would make them disagree.
+    ref_opt = torch.optim.AdamW(
+        [
+            {"params": [p for p in reference.parameters() if p.dim() >= 2], "weight_decay": 0.01},
+            {"params": [p for p in reference.parameters() if p.dim() < 2], "weight_decay": 0.0},
+        ],
+        lr=1e-2, betas=(0.9, 0.999), eps=1e-8,
+    )
 
     torch.manual_seed(1)
     x = torch.randn(8, 4)
@@ -58,3 +65,31 @@ def test_step_actually_lowers_the_loss():
         opt.step()
     last_loss = loss_fn(layer(x), target).item()
     assert last_loss < first_loss
+
+
+def test_weight_decay_skips_biases_and_layernorm():
+    # Standard GPT practice: decay only the 2-D weight matrices. A Linear's weight is 2-D (decayed);
+    # its bias and a LayerNorm's scale/shift are 1-D (skipped).
+    model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.LayerNorm(4))
+    opt = AdamW(model.parameters())
+    decayed = [p for p, yes in zip(opt.parameters, opt.decayed) if yes]
+    skipped = [p for p, yes in zip(opt.parameters, opt.decayed) if not yes]
+    assert [p.dim() for p in decayed] == [2]        # just the Linear's weight
+    assert [p.dim() for p in skipped] == [1, 1, 1]  # Linear bias + LayerNorm scale & shift
+
+
+def test_decay_shrinks_only_the_2d_weights():
+    # with NO gradients at all, decay is the only thing that can move a parameter:
+    # the 2-D weight must shrink, the 1-D bias must not budge.
+    layer = torch.nn.Linear(4, 4)
+    with torch.no_grad():
+        layer.weight.fill_(1.0)
+        layer.bias.fill_(1.0)
+    layer.weight.grad = torch.zeros_like(layer.weight)
+    layer.bias.grad = torch.zeros_like(layer.bias)
+
+    opt = AdamW(layer.parameters(), learning_rate=1e-2, weight_decay=0.1)
+    opt.step()
+
+    assert layer.weight.max().item() < 1.0        # shrunk by weight decay
+    assert layer.bias.min().item() == 1.0         # untouched

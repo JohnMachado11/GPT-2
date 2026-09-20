@@ -81,6 +81,26 @@ touches every weight in the table on the way down (then AdamW, `train/optimizer.
 fading — that's why a deep transformer trains at all. And thanks to weight tying, the token embedding
 collects gradient from **both ends** (as the output projection *and* the input lookup).
 
+### Not every weight is treated the same
+
+Every weight above gets a gradient, but **weight decay** (AdamW's steady pull toward zero, which keeps
+weights from growing large and overfitting) is applied **only to the 2-D weight matrices** — the
+embeddings and the attention / feed-forward weights. The **1-D** tensors — every `bias` and every
+LayerNorm `scale` / `shift` — are **skipped**, because shrinking them toward zero just fights what
+they're for: a LayerNorm scale of 0 would erase the signal it's meant to re-scale.
+
+This is the standard split for GPT-style training — it's what nanoGPT's GPT-2 reproduction does — and
+here it's a one-line rule in `train/optimizer.py`:
+
+```python
+self.decayed = [parameter.dim() >= 2 for parameter in self.parameters]
+```
+
+On the example model (embed 128, 2 layers) that's **6,834,304 decayed** parameters across 10 tensors
+versus **3,584 skipped** across 18 — a tiny slice of the weights, deliberately left alone. The decay
+strength is **0.1**, the `AdamW` default here: it's the value stated in the GPT-3 paper, and the one
+nanoGPT uses when it retrains GPT-2 from scratch (the GPT-2 paper itself never published one).
+
 ---
 
 ## Setup
