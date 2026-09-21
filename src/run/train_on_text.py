@@ -16,6 +16,11 @@ from gpt2.checkpoint import save_checkpoint, checkpoint_name
 here = Path(__file__).parent
 data_dir = here / "data"
 
+# Fix every random draw: starting weights, batch windows, dropout, sampling.
+# Same seed + same settings = same model.
+seed = 1337
+torch.manual_seed(seed)
+
 tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
 # Read EVERY .txt in the data folder and tokenize each one.
