@@ -2,6 +2,7 @@ from pathlib import Path
 
 import torch
 from transformers import AutoTokenizer
+from transformers import logging as transformers_logging
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -21,6 +22,8 @@ data_dir = here / "data"
 seed = 1337
 torch.manual_seed(seed)
 
+transformers_logging.set_verbosity_error()   # hide the harmless ">1024 tokens" warning
+
 tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
 # Read EVERY .txt in the data folder and tokenize each one.
@@ -28,6 +31,11 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2")
 files = sorted(data_dir.glob("*.txt"))
 if not files:
     raise SystemExit(f"no .txt files found in {data_dir} -- add some text to train on")
+
+# GPT-2's one special token: <|endoftext|> (id 50256). It marks a document
+# boundary -- an ending behind it, a beginning in front of it.
+endoftext_id = tokenizer.eos_token_id
+separator = torch.tensor([endoftext_id])
 
 # Hold out the last 10% of EACH FILE for validation (the model never trains on it), so we can
 # spot overfitting -- if train loss keeps falling while val loss rises, it's memorizing.
@@ -40,14 +48,29 @@ val_parts = []
 for f in files:
     file_tokens = torch.tensor(tokenizer.encode(f.read_text()))
     split = int(0.9 * len(file_tokens))
-    train_parts.append(file_tokens[:split])
-    val_parts.append(file_tokens[split:])
+    train_parts.append(torch.cat([file_tokens[:split], separator]))
+    val_parts.append(torch.cat([file_tokens[split:], separator]))
     print(f"  - {f.name}: {len(file_tokens)} tokens -> {split} train / {len(file_tokens) - split} val")
 
 # Join the per-file pieces: all train pieces into one stream, all val pieces into another.
 train_data = torch.cat(train_parts)
 val_data = torch.cat(val_parts)
-print(f"split -> {len(train_data)} train tokens, {len(val_data)} val tokens")
+print(f"\nsplit -> {len(train_data)} train tokens, {len(val_data)} val tokens\n")
+
+# Show where the documents meet: the tail of one document with <|endoftext|>
+# inline, then the first few words of the next one.
+boundaries = (train_data == endoftext_id).nonzero().flatten().tolist()
+print(f"{len(boundaries)} <|endoftext|> in the train stream, at {boundaries}")
+for position in boundaries:
+    ending = tokenizer.decode(train_data[max(0, position - 8):position + 1].tolist())
+    next_ids = train_data[position + 1:position + 5].tolist()
+    print(f"\n  position {position}")
+    print(f"    {' '.join(ending.split())}")
+    if next_ids:
+        print(f"    next doc: {' '.join(tokenizer.decode(next_ids).split())}")
+    else:
+        print("    next doc: (end of stream)")
+print()
 
 config = GPTConfig(
     vocab_size=tokenizer.vocab_size,
