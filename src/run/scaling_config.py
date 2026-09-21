@@ -22,4 +22,12 @@ dropout = 0.1
 
 # --- minimum_viable settings ---
 minimum_embed_dim = 128       # the floor width (a multiple of 64)
-minimum_viable_epochs = 20    # how many times to read through your whole text
+
+# minimum_viable_epochs: how many times to read through your whole text. This is the
+# ONLY thing that sets the suggested step count:
+#
+#   num_steps = minimum_viable_epochs x total_tokens / (batch_size x context_length)
+#             =          10           x    84,996    /       (32     x       64     )
+#             =          10           x    84,996    /             2,048
+#             =   415 steps            (~41 steps = one pass over an 85k-token book)
+minimum_viable_epochs = 10
