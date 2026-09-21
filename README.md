@@ -142,14 +142,14 @@ every `.txt` in `src/run/data/`, prints how many tokens you have, and (based on
 
 ```
 Suggested config  (mode: minimum_viable)
-------------------------------------------------
+----------------------------------------------------
   embed_dim       128
   num_layers      2
   num_heads       2
   dropout         0.1
   batch_size      32
   context_length  64
-  num_steps       830
+  num_steps       415
 ```
 
 `scaling_config.py` has one switch, `MODE`, with two philosophies:

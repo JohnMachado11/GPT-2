@@ -66,7 +66,7 @@ history = train(
     train_data,
     batch_size=32,
     context_length=config.context_length,
-    num_steps=830,
+    num_steps=415,
     max_learning_rate=1e-3,
     warmup_steps=50,
     min_learning_rate=1e-4,
