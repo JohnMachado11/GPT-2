@@ -68,3 +68,27 @@ def test_generate_is_reproducible_with_fixed_seed():
     torch.manual_seed(42); a = model.generate(seed, max_new_tokens=6)
     torch.manual_seed(42); b = model.generate(seed, max_new_tokens=6)
     assert torch.equal(a, b)
+
+
+def test_generate_stops_at_stop_token():
+    # A real model here would rarely emit any particular token, so stub the forward
+    # pass to always predict `stop_id`: generation must halt on the FIRST new token
+    # instead of running all 50.
+    model = make_model()
+    stop_id = 7
+
+    def always_predicts_stop(token_ids, targets=None):
+        logits = torch.full((*token_ids.shape, model.config.vocab_size), -1e9)
+        logits[:, :, stop_id] = 0.0
+        return logits, None
+
+    model.forward = always_predicts_stop
+    prompt = torch.randint(0, 26, (1, 4))
+
+    stopped = model.generate(prompt, max_new_tokens=50, stop_at_token=stop_id)
+    assert stopped.shape[1] == 5                  # 4 prompt tokens + the stop token
+    assert stopped[0, -1].item() == stop_id       # the stop token is kept, not dropped
+
+    # without stop_at_token it must run the full length
+    full = model.generate(prompt, max_new_tokens=50)
+    assert full.shape[1] == 54
