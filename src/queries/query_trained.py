@@ -18,6 +18,6 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
 prompt = "The Martians"
 token_ids = tokenizer.encode(prompt, return_tensors="pt")
-output = model.generate(token_ids, max_new_tokens=40, top_k=20)
+output = model.generate(token_ids, max_new_tokens=40, top_k=20, stop_at_token=tokenizer.eos_token_id)
 print("\n--- your model's continuation ---")
 print(tokenizer.decode(output[0]))

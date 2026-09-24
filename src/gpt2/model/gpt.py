@@ -45,7 +45,7 @@ class GPT(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, token_ids, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, token_ids, max_new_tokens, temperature=1.0, top_k=None, stop_at_token=None):
         for _ in range(max_new_tokens):
             cropped_ids = token_ids[:, -self.config.context_length:]
             logits, _ = self(cropped_ids)
@@ -56,4 +56,6 @@ class GPT(nn.Module):
             probs = F.softmax(logits, dim=-1)
             next_id = torch.multinomial(probs, num_samples=1)
             token_ids = torch.cat((token_ids, next_id), dim=1)
+            if stop_at_token is not None and (next_id == stop_at_token).all():
+                break
         return token_ids
