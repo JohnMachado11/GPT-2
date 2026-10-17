@@ -83,7 +83,18 @@ config = GPTConfig(
 
 model = GPT(config)
 
-device = "mps" if torch.backends.mps.is_available() else "cpu"
+if torch.cuda.is_available():
+    device = "cuda"     # NVIDIA GPU (Colab, rented GPUs)
+elif torch.backends.mps.is_available():
+    device = "mps"      # Apple GPU (Mac)
+else:
+    device = "cpu"
+
+if device == "cuda":
+    torch.set_float32_matmul_precision("high")    # let NVIDIA GPUs use TF32 for 32-bit matrix math
+
+print(f"device -> {device} | bf16 {'on' if device == 'cuda' else 'off'}\n")
+
 model.to(device)
 
 optimizer = AdamW(model.parameters(), weight_decay=0.1)   # GPT-3 paper's value; nanoGPT's GPT-2 retrain
@@ -101,6 +112,7 @@ history = train(
     max_gradient_norm=1.0,                  # GPT-3 paper's value; nanoGPT's GPT-2 retrain uses it
     val_data=val_data,
     device=device,
+    use_bf16=(device == "cuda"),            # bf16 on NVIDIA GPUs; Mac and CPU stay 32-bit
 )
 
 saved_path = save_checkpoint(model, config, here.parent / "checkpoints" / checkpoint_name(model, config))

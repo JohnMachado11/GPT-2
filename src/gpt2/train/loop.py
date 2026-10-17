@@ -5,12 +5,13 @@ from gpt2.train.data import get_batch
 
 
 @torch.no_grad()
-def estimate_loss(model, token_data, batch_size, context_length, device, num_batches=20):
+def estimate_loss(model, token_data, batch_size, context_length, device, num_batches=20, use_bf16=False):
     model.eval()
     total = 0.0
     for _ in range(num_batches):
         token_ids, targets = get_batch(token_data, batch_size, context_length, device)
-        logits, loss = model(token_ids, targets)
+        with torch.autocast(device_type=torch.device(device).type, dtype=torch.bfloat16, enabled=use_bf16):
+            logits, loss = model(token_ids, targets)
         total += loss.item()
     model.train()
     return total / num_batches
@@ -29,13 +30,16 @@ def train(
     max_gradient_norm,      # cap the total gradient size; 1.0 from the GPT-3 paper + nanoGPT's GPT-2 retrain
     val_data=None,
     eval_interval=100,
-    device="cpu"
+    device="cpu",
+    use_bf16=False,         # run the forward pass in bf16 (NVIDIA GPUs); weights stay 32-bit
 ):
     model.train()
     history = {"steps": [], "train_loss": [], "val_steps": [], "val_loss": []}
     for step in range(num_steps):
         token_ids, targets = get_batch(token_data, batch_size, context_length, device)  # 0. fresh random batch
-        logits, loss = model(token_ids, targets)          # 1. forward -> loss
+        # bf16 autocast: the matrix math runs in 16-bit when use_bf16 is on; a no-op when it's off
+        with torch.autocast(device_type=torch.device(device).type, dtype=torch.bfloat16, enabled=use_bf16):
+            logits, loss = model(token_ids, targets)      # 1. forward -> loss
         optimizer.zero_grad()                             # 2. clear stale gradients
         loss.backward()                                   #    fill fresh gradients (chain rule)
         torch.nn.utils.clip_grad_norm_(                   # 3. cap the TOTAL size of all gradients
@@ -52,7 +56,7 @@ def train(
         history["steps"].append(step)
         history["train_loss"].append(loss.item())
         if val_data is not None and step % eval_interval == 0:   # 7. every eval_interval steps, check the held-out set (the overfitting alarm)
-            val_loss = estimate_loss(model, val_data, batch_size, context_length, device)
+            val_loss = estimate_loss(model, val_data, batch_size, context_length, device, use_bf16=use_bf16)
             print(f"  step {step:4d} | val loss {val_loss:.4f}")
             history["val_steps"].append(step)
             history["val_loss"].append(val_loss)
