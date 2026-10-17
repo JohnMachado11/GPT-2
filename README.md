@@ -29,7 +29,7 @@ src/run/         train_on_text.py, count_tokens.py, scaling_config.py   (train +
 src/checkpoints/ your trained models + a how-to-read README             (.pt weights git-ignored)
 src/queries/     query_gpt2.py (real GPT-2) · query_trained.py (yours)  (prompt a model)
 src/playgrounds/ small scripts to poke each component                   (learning aids)
-src/tests/       the test suite                                         (23 tests)
+src/tests/       the test suite                                         (pytest)
 ```
 
 Everything is hand-written PyTorch: token + position embeddings → pre-norm transformer blocks (causal
@@ -117,7 +117,7 @@ python3.12 -m venv .venv
 .venv/bin/python -c "import sysconfig, os; open(os.path.join(sysconfig.get_paths()['purelib'], 'gpt2.pth'), 'w').write(os.path.abspath('src'))"
 
 # 3. verify everything works
-.venv/bin/python -m pytest src/tests/ -q      # -> 23 passed
+.venv/bin/python -m pytest src/tests/ -q      # -> all tests pass
 ```
 
 After step 2, `import gpt2` works for anything the venv's Python runs (tests, scripts, your own code).
