@@ -28,7 +28,7 @@ print(f"\n{'file':<28}{'chars':>12}{'tokens':>12}")
 print("-" * 52)
 for f in files:
     text = f.read_text()
-    n_tokens = len(tokenizer.encode(text))
+    n_tokens = len(tokenizer.encode(text, split_special_tokens=True))
     total_chars += len(text)
     total_tokens += n_tokens
     print(f"{f.name:<28}{len(text):>12,}{n_tokens:>12,}")

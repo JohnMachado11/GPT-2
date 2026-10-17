@@ -16,6 +16,9 @@ data/*.bin
 data/*.npy
 data/*.arrow
 
+# tokenized shard files from src/run/prepare_data.py (large, regenerable)
+src/run/shards/
+
 # downloaded training corpora (keep one book tracked so a fresh clone has something to train on)
 src/run/data/*.txt
 !src/run/data/the_war_of_the_worlds.txt

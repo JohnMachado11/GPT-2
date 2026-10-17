@@ -46,7 +46,7 @@ separator = torch.tensor([endoftext_id])
 train_parts = []
 val_parts = []
 for f in files:
-    file_tokens = torch.tensor(tokenizer.encode(f.read_text()))
+    file_tokens = torch.tensor(tokenizer.encode(f.read_text(), split_special_tokens=True))
     split = int(0.9 * len(file_tokens))
     train_parts.append(torch.cat([file_tokens[:split], separator]))
     val_parts.append(torch.cat([file_tokens[split:], separator]))
