@@ -21,10 +21,11 @@ It's meant to be a **template / base** for three things:
 ```
 src/gpt2/
   model/         config, layernorm, attention, feedforward, block, gpt  (the architecture)
-  train/         optimizer (AdamW), schedule (warmup+cosine), loop, data (the trainer)
+  train/         optimizer (AdamW), schedule (warmup+cosine), loop, data, shards (the trainer)
   from_hf.py     load the real GPT-2 weights into this model            (the HF bridge)
   checkpoint.py  save / load / auto-name trained models                 (checkpointing)
 src/run/         train_on_text.py, count_tokens.py, scaling_config.py   (train + size the model)
+                 prepare_data.py                                        (big datasets -> token shards)
                  + data/*.txt                                           (your training text)
 src/checkpoints/ your trained models + a how-to-read README             (.pt weights git-ignored)
 src/queries/     query_gpt2.py (real GPT-2) · query_trained.py (yours)  (prompt a model)
@@ -131,6 +132,8 @@ each one. To train on your own text, just **drop more `.txt` files into that fol
 scraped articles, your notes, a web page's text — no code changes needed. Each file is split
 **90% train / 10% validation on its own**, then the train pieces and the validation pieces are joined,
 so every file shows up in both sets (no matter how the files sort or how small one is).
+Every piece ends with GPT-2's document-boundary token, `<|endoftext|>` (id 50256), so the model
+learns where one text stops and the next begins instead of inventing a transition between files.
 
 **Prerequisite — size the model to your data first.** Before training, run the token counter. It reads
 every `.txt` in `src/run/data/`, prints how many tokens you have, and (based on
