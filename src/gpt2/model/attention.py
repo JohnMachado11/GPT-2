@@ -37,7 +37,7 @@ class CausalSelfAttention(nn.Module):
         scores = scores.masked_fill(~mask, float("-inf"))
 
         # softmax turns each row of scores into weights that sum to 1
-        weights = torch.softmax(scores, dim=-1)     # (batch, num_heads, positions, position)
+        weights = torch.softmax(scores, dim=-1)     # (batch, num_heads, positions, positions)
         weights = self.attn_dropout(weights)
 
         # blend the values using the attention weights
