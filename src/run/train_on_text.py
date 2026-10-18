@@ -11,7 +11,7 @@ from gpt2.model.config import GPTConfig
 from gpt2.model.gpt import GPT
 from gpt2.train.optimizer import AdamW
 from gpt2.train.loop import train
-from gpt2.checkpoint import save_checkpoint, checkpoint_name
+from gpt2.checkpoint import new_run_dir
 from gpt2.train.data import RandomWindows
 
 
@@ -74,12 +74,12 @@ for position in boundaries:
 print()
 
 config = GPTConfig(
-    vocab_size=tokenizer.vocab_size,
-    context_length=64,
-    embed_dim=128,
+    vocab_size=tokenizer.vocab_size,        # 50257 (GPT-2 BPE)
+    context_length=64,                      # tokens per window
+    embed_dim=128,                          # model size: grow these three for more capacity
     num_layers=2,
     num_heads=2,
-    dropout=0.1,
+    dropout=0.1,                            # GPT-2's value; regularizes against overfitting
 )
 
 model = GPT(config)
@@ -101,7 +101,20 @@ model.to(device)
 optimizer = AdamW(model.parameters(), weight_decay=0.1)   # GPT-3 paper's value; nanoGPT's GPT-2 retrain
 
 train_batches = RandomWindows(train_data, batch_size=32, context_length=config.context_length, device=device)
-val_batches = RandomWindows(val_data, batch_size=32, context_length=config.context_length, device=device)
+# validation gets its own seeded generator: every check then scores the SAME windows, so the numbers
+# are comparable (and best.pt isn't picked on noise), and checking never changes what training draws
+val_batches = RandomWindows(val_data, batch_size=32, context_length=config.context_length, device=device, seed=0)
+
+# Where this run's checkpoints go. To continue an interrupted run, put its folder name here
+# instead of None (e.g. "gpt2_L2_D128_6.8M_20261018-101500") -- train() picks up from its last.pt.
+resume_run = None
+checkpoints_dir = here.parent / "checkpoints"
+if resume_run is None:
+    run_dir = new_run_dir(model, config, checkpoints_dir)
+else:
+    run_dir = checkpoints_dir / resume_run
+    if not (run_dir / "last.pt").exists():
+        raise SystemExit(f"can't resume: {run_dir} has no last.pt")
 
 history = train(
     model,
@@ -115,9 +128,9 @@ history = train(
     val_batches=val_batches,
     device=device,
     use_bf16=(device == "cuda"),            # bf16 on NVIDIA GPUs; Mac and CPU stay 32-bit
+    run_dir=run_dir,
+    checkpoint_interval=100,                # save last.pt every 100 steps (and always at the end)
 )
-
-saved_path = save_checkpoint(model, config, here.parent / "checkpoints" / checkpoint_name(model, config))
 
 plt.plot(history["steps"], history["train_loss"], label="train")
 plt.plot(history["val_steps"], history["val_loss"], label="val", marker="o")
@@ -125,7 +138,7 @@ plt.xlabel("step")
 plt.ylabel("loss")
 plt.title("training vs validation loss")
 plt.legend()
-plot_path = saved_path.with_name(saved_path.stem + "_loss.png")
+plot_path = run_dir / "loss.png"
 plt.savefig(plot_path)
 print(f"saved loss curve -> {plot_path}")
 

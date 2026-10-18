@@ -1,3 +1,4 @@
+import operator
 from dataclasses import dataclass
 
 
@@ -12,6 +13,11 @@ class GPTConfig:
     bias: bool = True       # include the "+ offset" term in the model's linear steps?
 
     def __post_init__(self):
+        # store plain Python numbers, so a config built from numpy values still saves AND loads
+        # (operator.index takes whole numbers only: a size like 12.7 raises instead of becoming 12)
+        for name in ("vocab_size", "context_length", "embed_dim", "num_layers", "num_heads"):
+            setattr(self, name, operator.index(getattr(self, name)))
+        self.dropout = float(self.dropout)
         if self.embed_dim % self.num_heads != 0:
             raise ValueError(
                 f"embed_dim ({self.embed_dim}) must divide evenly by num_heads ({self.num_heads})"

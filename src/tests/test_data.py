@@ -1,6 +1,7 @@
+import numpy as np
 import pytest
 import torch
-from gpt2.train.data import RandomWindows, ShardLoader, get_batch
+from gpt2.train.data import RandomWindows, ShardLoader, get_batch, shard_fingerprint
 from gpt2.train.shards import write_shard
 
 
@@ -75,7 +76,7 @@ def test_shard_loader_moves_to_the_next_shard_then_wraps(tmp_path):
 
 
 def test_shard_loader_skips_shards_too_short_for_a_batch(tmp_path):
-    paths = make_shards(tmp_path)
+    make_shards(tmp_path)
     write_shard(tmp_path / "train_000002.bin", [500, 501, 502])
     loader = ShardLoader(sorted(tmp_path.glob("train_*.bin")), batch_size=2, context_length=3)
     assert len(loader.shard_paths) == 2
@@ -106,9 +107,79 @@ def test_shard_loader_resumes_exactly_where_it_stopped(tmp_path):
 
 
 def test_shard_loader_reads_shards_in_name_order_whatever_order_it_is_given(tmp_path):
-    # a saved position like {"shard": 0} must mean the same file on every run,
-    # even if glob hands the paths over in a different order
+    # the reading order must be the same on every run, even if glob hands the paths over in a
+    # different order
     paths = make_shards(tmp_path)
     forwards = ShardLoader(paths, batch_size=2, context_length=3)
     backwards = ShardLoader(list(reversed(paths)), batch_size=2, context_length=3)
     assert torch.equal(forwards.next_batch()[0], backwards.next_batch()[0])
+
+
+# ---------- boundaries: a batch that exactly fits must be used ----------
+
+def test_shard_loader_uses_every_batch_that_fits(tmp_path):
+    # 13 tokens, batch 2 x context 3: a batch reads 7 (6 + the last target), so exactly 2 batches
+    # fit (tokens 0..6, then 6..12) before it wraps
+    write_shard(tmp_path / "train_000000.bin", list(range(13)))
+    loader = ShardLoader([tmp_path / "train_000000.bin"], batch_size=2, context_length=3)
+    assert [loader.next_batch()[0][0, 0].item() for _ in range(3)] == [0, 6, 0]
+
+
+def test_shard_loader_keeps_a_shard_of_exactly_one_batch(tmp_path):
+    write_shard(tmp_path / "train_000000.bin", list(range(7)))      # exactly batch * context + 1
+    loader = ShardLoader([tmp_path / "train_000000.bin"], batch_size=2, context_length=3)
+    assert loader.next_batch()[1].flatten().tolist() == [1, 2, 3, 4, 5, 6]
+
+
+def test_get_batch_works_on_a_stream_of_exactly_context_plus_one():
+    token_ids, targets = get_batch(torch.arange(9), batch_size=3, context_length=8)
+    assert token_ids.tolist() == [list(range(8))] * 3
+    assert targets.tolist() == [list(range(1, 9))] * 3
+
+
+# ---------- seeded random windows (validation) ----------
+
+def test_seeded_random_windows_replay_the_same_windows_after_reset():
+    windows = RandomWindows(torch.arange(500), batch_size=4, context_length=8, seed=0)
+    first = [windows.next_batch()[0] for _ in range(3)]
+    windows.reset()
+    again = [windows.next_batch()[0] for _ in range(3)]
+    assert all(torch.equal(a, b) for a, b in zip(first, again))
+
+
+def test_seeded_random_windows_leave_the_global_random_generator_alone():
+    torch.manual_seed(0)
+    expected = torch.rand(3)
+    torch.manual_seed(0)
+    RandomWindows(torch.arange(500), batch_size=4, context_length=8, seed=0).next_batch()
+    assert torch.equal(torch.rand(3), expected)        # the global generator wasn't touched
+
+
+def test_unseeded_random_windows_follow_the_global_generator():
+    windows = RandomWindows(torch.arange(500), batch_size=4, context_length=8)
+    torch.manual_seed(5)
+    first = windows.next_batch()[0]
+    torch.manual_seed(5)
+    assert torch.equal(windows.next_batch()[0], first)
+
+
+def test_random_windows_state_round_trips_and_detects_changed_text():
+    windows = RandomWindows(torch.arange(500), batch_size=4, context_length=8, seed=0)
+    windows.next_batch()
+    saved = windows.state()
+    expected = windows.next_batch()[0]
+
+    restored = RandomWindows(torch.arange(500), batch_size=4, context_length=8, seed=0)
+    restored.load_state(saved)
+    assert torch.equal(restored.next_batch()[0], expected)
+
+    with pytest.raises(ValueError, match="training text changed"):
+        RandomWindows(torch.arange(400), batch_size=4, context_length=8).load_state(saved)
+
+
+def test_shard_loader_state_names_its_file(tmp_path):
+    loader = ShardLoader(make_shards(tmp_path), batch_size=2, context_length=3)
+    for _ in range(4):
+        loader.next_batch()                                 # 3 batches in shard 0, then one in shard 1
+    assert loader.state() == {"file": "train_000001.bin", "position": 6, "file_tokens": 15,
+                              "file_fingerprint": shard_fingerprint(np.arange(100, 115, dtype=np.uint16))}

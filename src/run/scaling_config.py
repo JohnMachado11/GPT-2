@@ -23,7 +23,7 @@ context_length = 64
 dropout = 0.1
 
 # --- minimum_viable settings ---
-minimum_embed_dim = 128       # the floor width (a multiple of 64)
+minimum_embed_dim = 128       # the model's width (a multiple of 64); layers = heads = width / 64
 
 # minimum_viable_epochs: how many times to read through your whole text. This is the
 # ONLY thing that sets the suggested step count:
@@ -31,5 +31,6 @@ minimum_embed_dim = 128       # the floor width (a multiple of 64)
 #   num_steps = minimum_viable_epochs x total_tokens / (batch_size x context_length)
 #             =          10           x    84,996    /       (32     x       64     )
 #             =          10           x    84,996    /             2,048
-#             =   415 steps            (~41 steps = one pass over an 85k-token book)
+#             =   415 steps            (~41 steps = the book's 85k tokens once; training reads
+#                                         only the 90% train split, so that's ~11 passes over it)
 minimum_viable_epochs = 10

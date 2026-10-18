@@ -9,9 +9,10 @@ __pycache__/
 *.pt
 *.ckpt
 *.safetensors
-# generated loss-curve plots (regenerated each run)
-src/checkpoints/*.png
-# the checkpoints/ folder + its README are kept; the *.pt weights and *.png plots inside are ignored
+# trained models: nothing in src/checkpoints/ is ever committed (run folders hold GBs of weights)
+# -- except its README, which keeps the folder in the repo and explains how to read it
+src/checkpoints/*
+!src/checkpoints/README.md
 data/*.bin
 data/*.npy
 data/*.arrow

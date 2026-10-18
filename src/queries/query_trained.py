@@ -6,11 +6,22 @@ from gpt2.checkpoint import load_checkpoint
 
 
 checkpoints_dir = Path(__file__).parent.parent / "checkpoints"
-checkpoints = list(checkpoints_dir.glob("*.pt"))
-if not checkpoints:
-    raise SystemExit(f"no checkpoints in {checkpoints_dir} -- run src/run/train_on_text.py first")
 
-latest = max(checkpoints, key=lambda p: p.stat().st_mtime)
+# every run folder that has saved a model (best.pt, or last.pt if no validation ran)
+runs = [
+    folder for folder in checkpoints_dir.glob("*")
+    if folder.is_dir() and ((folder / "best.pt").exists() or (folder / "last.pt").exists())
+]
+if not runs:
+    raise SystemExit(f"no trained models in {checkpoints_dir} -- run src/run/train_on_text.py first")
+
+def last_saved(folder):
+    # when this run last saved a model -- not the folder's own time, which any new file (even a
+    # .DS_Store) changes
+    return max(file.stat().st_mtime for file in (folder / "best.pt", folder / "last.pt") if file.exists())
+
+
+latest = max(runs, key=last_saved)
 print(f"loading {latest.name}")
 
 model = load_checkpoint(latest)
