@@ -127,6 +127,23 @@ After step 2, `import gpt2` works for anything the venv's Python runs (tests, sc
 
 ## Use 1 — Train a GPT-2 from scratch on your own text
 
+**The whole flow, in order:**
+
+```bash
+# 1. add text: put .txt files in src/run/data/   (The War of the Worlds is already there)
+
+# 2. size the model to your text -- prints each setting AND where it goes in train_on_text.py
+.venv/bin/python src/run/count_tokens.py
+
+# 3. copy those values into src/run/train_on_text.py, then train
+.venv/bin/python src/run/train_on_text.py
+
+# 4. talk to the model you just trained
+.venv/bin/python src/queries/query_trained.py
+```
+
+Each step is explained below.
+
 **Where the data goes:** the example reads **every `.txt` file in `src/run/data/`** and tokenizes
 each one. To train on your own text, just **drop more `.txt` files into that folder** — a book,
 scraped articles, your notes, a web page's text — no code changes needed. Each file is split
@@ -137,7 +154,8 @@ learns where one text stops and the next begins instead of inventing a transitio
 
 **Prerequisite — size the model to your data first.** Before training, run the token counter. It reads
 every `.txt` in `src/run/data/`, prints how many tokens you have, and (based on
-`src/run/scaling_config.py`) prints a **suggested config** to copy into `train_on_text.py`:
+`src/run/scaling_config.py`) prints a **suggested config**, laid out the same way as the code in
+`train_on_text.py`, so you can see exactly which line each value belongs on:
 
 ```bash
 .venv/bin/python src/run/count_tokens.py
@@ -146,13 +164,25 @@ every `.txt` in `src/run/data/`, prints how many tokens you have, and (based on
 ```
 Suggested config  (mode: minimum_viable)
 ----------------------------------------------------
-  embed_dim       128
-  num_layers      2
-  num_heads       2
-  dropout         0.1
-  batch_size      32
-  context_length  64
-  num_steps       415
+set these values in src/run/train_on_text.py:
+
+  config = GPTConfig(
+      ...
+      context_length=64,
+      embed_dim=128,
+      num_layers=2,
+      num_heads=2,
+      dropout=0.1,
+  )
+
+  train_batches = RandomWindows(train_data, batch_size=32, ...)
+  val_batches = RandomWindows(val_data, batch_size=32, ...)
+
+  history = train(
+      ...
+      num_steps=415,
+      ...
+  )
 ```
 
 `scaling_config.py` has one switch, `MODE`, with two philosophies:
@@ -162,11 +192,12 @@ Suggested config  (mode: minimum_viable)
   coherent samples without a needlessly large model.
 - **`"chinchilla_exact"`** — the *compute-optimal* size for your token count (the Chinchilla rule of
   ~20 training tokens per parameter, trained about one epoch). It **grows with your data** and recovers
-  real architectures — e.g. ~1.7B tokens suggests embed 768 · 12 layers · 12 heads, which **is** GPT-2
-  small.
+  real architectures — e.g. ~1.7B tokens suggests embed 768 · 12 layers · 12 heads, GPT-2 small's *shape*.
+  That's the most efficient size for that much data, not how much data OpenAI trained it on: a model
+  this size keeps improving on far more (reproductions of GPT-2 small use ~10B tokens).
 
-Copy the suggested `embed_dim` / `num_layers` / `num_heads` / `dropout` into the `GPTConfig`, and the
-`batch_size` / `num_steps` into the `train(...)` call (both shown below), then train.
+Copy the suggested `embed_dim` / `num_layers` / `num_heads` / `dropout` into the `GPTConfig`, the
+`batch_size` into the two `RandomWindows(...)` lines, and `num_steps` into the `train(...)` call, then train.
 
 Run the bundled end-to-end example:
 
@@ -190,8 +221,9 @@ config = GPTConfig(
 )
 ```
 
-and the `train(...)` call's knobs (`batch_size`, `num_steps`, `max_learning_rate`, `warmup_steps`,
-`min_learning_rate`, `max_gradient_norm`). That's the whole recipe: **text files → tokenize → build model → `train(...)` →
+plus the `batch_size` in the two `RandomWindows(...)` lines that cut the text into batches, and the
+`train(...)` call's knobs (`num_steps`, `max_learning_rate`, `warmup_steps`, `min_learning_rate`, `max_gradient_norm`).
+That's the whole recipe: **text files → tokenize → build model → `train(...)` →
 save → `generate(...)`.**
 
 **Every run saves the model.** Training writes a uniquely-named checkpoint to `src/checkpoints/` — e.g.
