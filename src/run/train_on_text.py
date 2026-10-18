@@ -12,6 +12,7 @@ from gpt2.model.gpt import GPT
 from gpt2.train.optimizer import AdamW
 from gpt2.train.loop import train
 from gpt2.checkpoint import save_checkpoint, checkpoint_name
+from gpt2.train.data import RandomWindows
 
 
 here = Path(__file__).parent
@@ -99,18 +100,19 @@ model.to(device)
 
 optimizer = AdamW(model.parameters(), weight_decay=0.1)   # GPT-3 paper's value; nanoGPT's GPT-2 retrain
 
+train_batches = RandomWindows(train_data, batch_size=32, context_length=config.context_length, device=device)
+val_batches = RandomWindows(val_data, batch_size=32, context_length=config.context_length, device=device)
+
 history = train(
     model,
     optimizer,
-    train_data,
-    batch_size=32,
-    context_length=config.context_length,
+    train_batches,
     num_steps=415,
     max_learning_rate=1e-3,
     warmup_steps=50,
     min_learning_rate=1e-4,
     max_gradient_norm=1.0,                  # GPT-3 paper's value; nanoGPT's GPT-2 retrain uses it
-    val_data=val_data,
+    val_batches=val_batches,
     device=device,
     use_bf16=(device == "cuda"),            # bf16 on NVIDIA GPUs; Mac and CPU stay 32-bit
 )

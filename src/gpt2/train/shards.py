@@ -10,8 +10,10 @@ TOKEN_DTYPE = np.uint16
 
 def write_shard(path, token_ids):
     token_ids = np.asarray(token_ids)
-    if token_ids.max() >= 2 ** 16:
-        raise ValueError(f"token id {token_ids.max()} doesn't fit in uint16")
+    if token_ids.size == 0:
+        raise ValueError("no token ids to write")
+    if token_ids.min() < 0 or token_ids.max() >= 2 ** 16:
+        raise ValueError(f"token ids must be 0..65,535 to fit in uint16 (got {token_ids.min()}..{token_ids.max()})")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     token_ids.astype(TOKEN_DTYPE).tofile(path)
 

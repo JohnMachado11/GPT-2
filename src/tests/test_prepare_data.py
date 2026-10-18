@@ -36,6 +36,17 @@ def test_shard_rejects_ids_too_big_for_uint16(tmp_path):
         write_shard(tmp_path / "s.bin", [70_000])
 
 
+def test_shard_rejects_negative_ids(tmp_path):
+    # uint16 can't hold -1: it would silently become 65,535
+    with pytest.raises(ValueError):
+        write_shard(tmp_path / "s.bin", [5, -1])
+
+
+def test_shard_rejects_empty_input(tmp_path):
+    with pytest.raises(ValueError):
+        write_shard(tmp_path / "s.bin", [])
+
+
 def test_writer_spills_across_shards_without_losing_tokens(tmp_path, capsys):
     writer = prepare_data.ShardWriter(tmp_path, shard_size=10)
     writer.add(list(range(1, 8)))       # 7 tokens: fits in shard 0

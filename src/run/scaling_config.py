@@ -8,7 +8,9 @@
 #   "chinchilla_exact" -> the compute-optimal size for your token count
 #                         (~20 training tokens per parameter), trained about
 #                         one epoch. Grows with your data; recovers GPT-2
-#                         small (768 / 12 / 12) at ~1.7B tokens.
+#                         small's shape (768 / 12 / 12) at ~1.7B tokens --
+#                         the efficient size for that data, not GPT-2's
+#                         actual training amount.
 
 MODE = "minimum_viable"
 
