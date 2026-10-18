@@ -222,7 +222,9 @@ config = GPTConfig(
 ```
 
 plus the `batch_size` in the two `RandomWindows(...)` lines that cut the text into batches, and the
-`train(...)` call's knobs (`num_steps`, `max_learning_rate`, `warmup_steps`, `min_learning_rate`, `max_gradient_norm`).
+`train(...)` call's knobs (`num_steps`, `max_learning_rate`, `warmup_steps`, `min_learning_rate`, `max_gradient_norm`,
+and `accumulation_steps` -- add up the gradients of several batches before each update, for an effectively
+bigger batch than fits in memory; 1 = off).
 That's the whole recipe: **text files → tokenize → build model → `train(...)` →
 save → `generate(...)`.**
 
