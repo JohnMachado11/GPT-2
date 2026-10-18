@@ -4,6 +4,7 @@ from gpt2.model.config import GPTConfig
 from gpt2.model.gpt import GPT
 from gpt2.train.optimizer import AdamW
 from gpt2.train.loop import estimate_loss, train
+from gpt2.train.schedule import learning_rate_at
 from gpt2.train.data import RandomWindows, ShardLoader
 from gpt2.train.shards import write_shard
 
@@ -73,6 +74,7 @@ class FixedBatches:
     def __init__(self, batches):
         self.batches = batches
         self.index = 0
+        self.batch_size, self.context_length = batches[0][0].shape     # like the real batch sources
 
     def next_batch(self):
         batch = self.batches[self.index]
@@ -124,7 +126,130 @@ def test_train_stops_when_the_loss_diverges():
     # an absurd learning rate blows the weights up after the first step; training must stop
     # loudly instead of grinding on with a NaN loss
     model = make_model()
-    with pytest.raises(RuntimeError, match="diverged"):
+    with pytest.raises(RuntimeError, match="loss became"):     # the LOSS check, specifically
         train(model, AdamW(model.parameters()), RandomWindows(torch.arange(200) % 50, 2, 16),
               num_steps=5, max_learning_rate=1e30, warmup_steps=1, min_learning_rate=1e30,
               max_gradient_norm=1.0)
+
+
+# ---------- the training step, piece by piece ----------
+
+def short_run(model, batches, **overrides):
+    arguments = dict(num_steps=1, max_learning_rate=1e-2, warmup_steps=1, min_learning_rate=1e-3,
+                     max_gradient_norm=1.0, device="cpu")
+    arguments.update(overrides)
+    return train(model, AdamW(model.parameters()), batches, **arguments)
+
+
+EASY = torch.arange(20).repeat(100)
+
+
+def test_gradients_are_clipped_to_max_gradient_norm():
+    # gradients survive after the last step, so their total size can be measured directly
+    model = make_model()
+    short_run(model, RandomWindows(EASY, 8, 16), max_gradient_norm=0.01)
+    total = torch.norm(torch.stack([p.grad.norm() for p in model.parameters()]))
+    assert total <= 0.01 * (1 + 1e-5)
+
+
+def test_bf16_autocast_is_actually_used():
+    # not just "training still works" -- the matrix math inside really runs in bf16
+    model = make_model()
+    dtypes = []
+    model.blocks[0].attn.qkv.register_forward_hook(lambda module, inputs, output: dtypes.append(output.dtype))
+    short_run(model, RandomWindows(EASY, 8, 16), use_bf16=True)
+    assert dtypes == [torch.bfloat16]
+
+
+def test_validation_runs_every_eval_interval_steps_and_at_the_end():
+    model = make_model()
+    history = short_run(model, RandomWindows(EASY, 8, 16), num_steps=12, warmup_steps=3,
+                        val_batches=RandomWindows(EASY, 8, 16, seed=0), eval_interval=5)
+    assert history["val_steps"] == [0, 5, 10, 11]
+
+
+@pytest.mark.parametrize("bad", [{"eval_interval": 0}, {"checkpoint_interval": 0}, {"accumulation_steps": 0}])
+def test_train_rejects_impossible_intervals_before_training(bad):
+    model = make_model()
+    before = [p.clone() for p in model.parameters()]
+    with pytest.raises(ValueError, match="must be at least 1"):
+        short_run(model, RandomWindows(EASY, 8, 16), **bad)
+    assert all(torch.equal(a, b) for a, b in zip(before, model.parameters()))     # refused up front
+
+
+def test_a_warmup_longer_than_the_run_is_warned_about(capsys):
+    short_run(make_model(), RandomWindows(EASY, 8, 16), num_steps=2, warmup_steps=50)
+    assert "longer than the run" in capsys.readouterr().out
+
+
+def test_estimate_loss_switches_dropout_off_and_hands_the_model_back_training(tmp_path):
+    write_shard(tmp_path / "val_000000.bin", (torch.arange(400) % 50).tolist())
+    torch.manual_seed(0)
+    model = GPT(GPTConfig(vocab_size=50, context_length=8, embed_dim=16, num_layers=2, num_heads=2, dropout=0.5))
+    val = ShardLoader([tmp_path / "val_000000.bin"], 4, 8)
+    first = estimate_loss(model, val, "cpu", num_batches=3)
+    second = estimate_loss(model, val, "cpu", num_batches=3)
+    assert first == second                  # with dropout 0.5 left ON, these would differ
+    assert model.training                   # and the model is back in training mode afterwards
+
+
+def test_seeded_validation_windows_give_the_same_number_every_check():
+    model = make_model()
+    val = RandomWindows(EASY, 8, 16, seed=0)
+    assert estimate_loss(model, val, "cpu", num_batches=3) == estimate_loss(model, val, "cpu", num_batches=3)
+
+
+def test_validation_checks_never_change_which_windows_training_draws():
+    # seeded validation uses its own generator, so how OFTEN you validate can't change the training run
+    def train_with(eval_interval):
+        torch.manual_seed(0)
+        model = GPT(GPTConfig(vocab_size=50, context_length=16, embed_dim=32, num_layers=2, num_heads=2))
+        short_run(model, RandomWindows(EASY, 8, 16), num_steps=8, warmup_steps=2,
+                  val_batches=RandomWindows(EASY, 8, 16, seed=0), eval_interval=eval_interval)
+        return model
+
+    assert all(torch.equal(a, b) for a, b in zip(train_with(1).parameters(), train_with(4).parameters()))
+
+
+def test_train_hands_the_scheduled_learning_rate_to_the_optimizer_every_step():
+    model = make_model()
+    optimizer = AdamW(model.parameters())
+    seen = []
+    real_step = optimizer.step
+    optimizer.step = lambda: (seen.append(optimizer.learning_rate), real_step())
+    train(model, optimizer, RandomWindows(EASY, 8, 16), num_steps=12, max_learning_rate=1e-2, warmup_steps=3,
+          min_learning_rate=1e-3, max_gradient_norm=1.0)
+    assert seen == [learning_rate_at(step, 1e-2, 3, 12, 1e-3) for step in range(12)]
+
+
+def test_an_infinite_gradient_also_stops_training_before_the_update():
+    model = make_model()
+    model.token_embedding.weight.register_hook(lambda gradient: gradient.clone().fill_(float("inf")))
+    with pytest.raises(RuntimeError, match="gradients became"):
+        short_run(model, RandomWindows(EASY, 8, 16))
+    assert all(torch.isfinite(p).all() for p in model.parameters())
+
+
+def test_a_warmup_exactly_as_long_as_the_run_is_not_warned_about(capsys):
+    short_run(make_model(), RandomWindows(EASY, 8, 16), num_steps=3, warmup_steps=3)
+    assert "longer than the run" not in capsys.readouterr().out
+
+
+def test_unseeded_validation_windows_are_warned_about(capsys):
+    short_run(make_model(), RandomWindows(EASY, 8, 16), val_batches=RandomWindows(EASY, 8, 16))
+    assert "has no seed" in capsys.readouterr().out
+
+
+def test_validation_read_from_shard_files_is_not_warned_about(tmp_path, capsys):
+    # a ShardLoader reads the same windows in order every time -- it needs no seed
+    write_shard(tmp_path / "val_000000.bin", list(range(20)) * 40)
+    short_run(make_model(), RandomWindows(EASY, 8, 16), val_batches=ShardLoader([tmp_path / "val_000000.bin"], 8, 16))
+    assert "has no seed" not in capsys.readouterr().out
+
+
+def test_validation_uses_bf16_when_training_does():
+    model = make_model()
+    dtypes = []
+    model.blocks[0].attn.qkv.register_forward_hook(lambda module, inputs, output: dtypes.append(output.dtype))
+    short_run(model, RandomWindows(EASY, 8, 16), use_bf16=True, val_batches=RandomWindows(EASY, 8, 16, seed=0))
+    assert dtypes and all(dtype == torch.bfloat16 for dtype in dtypes)     # 1 training forward + 20 validation

@@ -23,13 +23,13 @@ src/gpt2/
   model/         config, layernorm, attention, feedforward, block, gpt  (the architecture)
   train/         optimizer (AdamW), schedule (warmup+cosine), loop, data, shards (the trainer)
   from_hf.py     load the real GPT-2 weights into this model            (the HF bridge)
-  checkpoint.py  save / load / auto-name trained models                 (checkpointing)
+  checkpoint.py  run folders: save, load, resume                        (checkpointing)
 src/run/         train_on_text.py, count_tokens.py, scaling_config.py   (train + size the model)
                  prepare_data.py                                        (big datasets -> token shards)
                  + data/*.txt                                           (your training text)
-src/checkpoints/ your trained models + a how-to-read README             (.pt weights git-ignored)
+src/checkpoints/ one folder per training run + a README                 (git-ignored)
 src/queries/     query_gpt2.py (real GPT-2) · query_trained.py (yours)  (prompt a model)
-src/playgrounds/ small scripts to poke each component                   (learning aids)
+src/playgrounds/ small scripts to poke the core layers                  (learning aids)
 src/tests/       the test suite                                         (pytest)
 ```
 
@@ -118,7 +118,8 @@ python3.12 -m venv .venv
 .venv/bin/python -c "import sysconfig, os; open(os.path.join(sysconfig.get_paths()['purelib'], 'gpt2.pth'), 'w').write(os.path.abspath('src'))"
 
 # 3. verify everything works
-.venv/bin/python -m pytest src/tests/ -q      # -> all tests pass
+.venv/bin/python -m pytest src/tests/ -q      # -> all tests pass (the first run downloads GPT-2's
+                                              #    tokenizer from Hugging Face, a few MB, once)
 ```
 
 After step 2, `import gpt2` works for anything the venv's Python runs (tests, scripts, your own code).
@@ -136,6 +137,7 @@ After step 2, `import gpt2` works for anything the venv's Python runs (tests, sc
 .venv/bin/python src/run/count_tokens.py
 
 # 3. copy those values into src/run/train_on_text.py, then train
+#    (interrupted? set resume_run in train_on_text.py to the run's folder and run this again)
 .venv/bin/python src/run/train_on_text.py
 
 # 4. talk to the model you just trained
@@ -187,7 +189,8 @@ set these values in src/run/train_on_text.py:
 
 `scaling_config.py` has one switch, `MODE`, with two philosophies:
 
-- **`"minimum_viable"`** — the smallest *usable* model (a floor of embed 128 · 2 layers · 2 heads),
+- **`"minimum_viable"`** — the smallest *usable* model, a fixed size whatever your text: embed
+  `minimum_embed_dim` (128), with one layer and one head per 64 of width (so 128 · 2 layers · 2 heads),
   over-trained a fixed number of epochs (`minimum_viable_epochs`). Best when your text is small: you get
   coherent samples without a needlessly large model.
 - **`"chinchilla_exact"`** — the *compute-optimal* size for your token count (the Chinchilla rule of
@@ -196,8 +199,9 @@ set these values in src/run/train_on_text.py:
   That's the most efficient size for that much data, not how much data OpenAI trained it on: a model
   this size keeps improving on far more (reproductions of GPT-2 small use ~10B tokens).
 
-Copy the suggested `embed_dim` / `num_layers` / `num_heads` / `dropout` into the `GPTConfig`, the
-`batch_size` into the two `RandomWindows(...)` lines, and `num_steps` into the `train(...)` call, then train.
+Copy the suggested `context_length` / `embed_dim` / `num_layers` / `num_heads` / `dropout` into the
+`GPTConfig`, the `batch_size` into the two `RandomWindows(...)` lines, and `num_steps` into the
+`train(...)` call, then train.
 
 Run the bundled end-to-end example:
 
@@ -206,32 +210,45 @@ Run the bundled end-to-end example:
 ```
 
 You'll see training loss fall from ~10.8 (random guessing over GPT-2's 50k vocab), a **validation
-loss** printed every 100 steps (measured on held-out text the model never trains on — your overfitting
-check), a saved checkpoint, and finally a generated sample that echoes the training text.
+loss** printed every 100 steps and at the last step (measured on the same held-out windows each time,
+text the model never trains on — your overfitting check), checkpoints saved into a new run folder (`best.pt` and `last.pt`, see below), and finally a
+generated sample that echoes the training text.
 
 Adding data needs no code edits — just put `.txt` files in `src/run/data/`. To change the model
-size, edit the config at the top of `src/run/train_on_text.py`:
+size, edit the `GPTConfig(...)` in `src/run/train_on_text.py` (just after the data is loaded):
 
 ```python
 config = GPTConfig(
     vocab_size=tokenizer.vocab_size,        # 50257 (GPT-2 BPE)
     context_length=64,                      # tokens per window
-    embed_dim=128, num_layers=2, num_heads=2,  # model size — grow for more capacity
+    embed_dim=128,                          # model size: grow these three for more capacity
+    num_layers=2,
+    num_heads=2,
     dropout=0.1,                            # GPT-2's value; regularizes against overfitting
 )
 ```
 
 plus the `batch_size` in the two `RandomWindows(...)` lines that cut the text into batches, and the
-`train(...)` call's knobs (`num_steps`, `max_learning_rate`, `warmup_steps`, `min_learning_rate`, `max_gradient_norm`,
-and `accumulation_steps` -- add up the gradients of several batches before each update, for an effectively
-bigger batch than fits in memory; 1 = off).
+`train(...)` call's settings: `num_steps`, `max_learning_rate`, `warmup_steps`, `min_learning_rate`,
+`max_gradient_norm`, and `checkpoint_interval` (how often `last.pt` is saved). Two more settings aren't in
+the call, so they use their defaults: `eval_interval` (validate every N steps; default 100) and
+`accumulation_steps`, which adds up the gradients of several batches before each update, for an
+effectively bigger batch than fits in memory (add e.g. `accumulation_steps=4,`; default 1 = off).
 That's the whole recipe: **text files → tokenize → build model → `train(...)` →
 save → `generate(...)`.**
 
-**Every run saves the model.** Training writes a uniquely-named checkpoint to `src/checkpoints/` — e.g.
-`gpt2_L4_D128_7.2M_20260914-115430.pt` (architecture · param count · to-the-second timestamp), so runs
-never overwrite each other. `src/checkpoints/README.md` explains how to read the names. (The `.pt`
-weight files are git-ignored — they're large.)
+**Every run gets its own folder** in `src/checkpoints/`, e.g. `gpt2_L2_D128_6.8M_20261018-122043/`
+(architecture · param count · to-the-second timestamp), so runs never overwrite each other. Inside:
+`best.pt` (the weights at the lowest validation loss), `last.pt` (everything needed to resume),
+`config.json`, and `loss.png`. Nothing in that folder is committed to git -- the weights are large.
+
+**Resuming an interrupted run:** set `resume_run` (just above the `train(...)` call in
+`train_on_text.py`) to the run's folder name and run it again. It continues from the step after the
+last save in `last.pt` -- saves happen every `checkpoint_interval` steps (100 here), so at most that many
+steps are redone -- with the same data order, learning-rate schedule and optimizer state, so it finishes
+as the same run. It refuses to resume if the model, the schedule or optimizer settings, or the training
+text's length changed (the full list is in `src/checkpoints/README.md`). Set `resume_run` back to `None`
+for a fresh run.
 
 **Talk to the model you trained:**
 
@@ -239,9 +256,10 @@ weight files are git-ignored — they're large.)
 .venv/bin/python src/queries/query_trained.py
 ```
 
-It auto-loads your **newest** checkpoint and generates from a prompt. A tiny model trained on a little
-text will echo and remix that text — that's expected; train a bigger model on more data for more
-coherent output.
+It auto-loads the run folder saved to most recently -- its `best.pt`, or `last.pt` if the run had no
+validation -- and generates from a prompt. A tiny model
+trained on a little text will echo and remix that text — that's expected; train a bigger model on more
+data for more coherent output.
 
 ---
 
@@ -280,7 +298,8 @@ fine-tuning experiments, and similar work — built in separate projects that im
 
 ## Why it looks the way it does
 
-Names are spelled out, comments explain the *why*, and each piece has a runnable playground and a test.
+Names are spelled out, comments explain the *why*, most pieces have a test, and the core layers have a
+runnable playground.
 The goal is a codebase you can read top-to-bottom and actually understand — and then trust, because it
 reproduces the real GPT-2 to floating-point rounding.
 

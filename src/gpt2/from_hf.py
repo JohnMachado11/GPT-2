@@ -2,8 +2,8 @@
 Load a real, pretrained GPT-2 from Hugging Face into MY hand-built GPT.
 
 Why this file exists:
-  1. Proof: pour GPT-2's trained weights into my modules and the outputs match to ~1e-5,
-     showing my from-scratch architecture is structurally identical to real GPT-2.
+  1. Proof: pour GPT-2's trained weights into my modules and the outputs match (~1e-13 in float64,
+     ~1e-4 in float32), showing my from-scratch architecture is structurally identical to real GPT-2.
   2. A real, capable model whose every weight & intermediate I can read/edit later (Part 2 surgery).
 
 The only fiddly bits are (a) GPT-2's cryptic names -> my clear names, and (b) four weight matrices
@@ -50,7 +50,12 @@ def _to_my_name(gpt2_name):
 
 def load_gpt2(model_name="gpt2"):
     """Build my GPT at GPT-2's size and copy the pretrained weights in. Returns my GPT in eval mode."""
-    hugging_face_model = GPT2LMHeadModel.from_pretrained(model_name)
+    return from_hugging_face_model(GPT2LMHeadModel.from_pretrained(model_name))
+
+
+def from_hugging_face_model(hugging_face_model):
+    """Build my GPT with the same shape as a Hugging Face GPT-2 model and copy its weights in.
+    Split out of load_gpt2 so the copy can be tested offline, on a small randomly-initialized model."""
     pretrained_weights = hugging_face_model.state_dict()
 
     config = GPTConfig(
