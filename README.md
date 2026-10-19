@@ -25,8 +25,8 @@ src/gpt2/
   from_hf.py     load the real GPT-2 weights into this model            (the HF bridge)
   checkpoint.py  run folders: save, load, resume                        (checkpointing)
 src/run/         train_on_text.py, count_tokens.py, scaling_config.py   (train + size the model)
-                 prepare_data.py                                        (big datasets -> token shards)
-                 + data/*.txt                                           (your training text)
+                 prepare_data.py                                        (FineWeb -> token shards)
+                 + data/*.txt · shards/                                 (your text · tokenized data)
 src/checkpoints/ one folder per training run + a README                 (git-ignored)
 src/queries/     query_gpt2.py (real GPT-2) · query_trained.py (yours)  (prompt a model)
 src/playgrounds/ small scripts to poke the core layers                  (learning aids)
@@ -146,13 +146,18 @@ After step 2, `import gpt2` works for anything the venv's Python runs (tests, sc
 
 Each step is explained below.
 
-**Where the data goes:** the example reads **every `.txt` file in `src/run/data/`** and tokenizes
-each one. To train on your own text, just **drop more `.txt` files into that folder** — a book,
-scraped articles, your notes, a web page's text — no code changes needed. Each file is split
-**90% train / 10% validation on its own**, then the train pieces and the validation pieces are joined,
-so every file shows up in both sets (no matter how the files sort or how small one is).
-Every piece ends with GPT-2's document-boundary token, `<|endoftext|>` (id 50256), so the model
-learns where one text stops and the next begins instead of inventing a transition between files.
+**Where the data goes:** the example reads **every `.txt` file in `src/run/data/`**. To train on your
+own text, just **drop more `.txt` files into that folder** — a book, scraped articles, your notes, a web
+page's text — no code changes needed. Each file is split **90% train / 10% validation on its own**
+(`train_fraction = 0.9`), then the train pieces and the validation pieces are joined, so every file
+shows up in both sets (no matter how the files sort or how small one is). Every piece ends with GPT-2's
+document-boundary token, `<|endoftext|>` (id 50256), so the model learns where one text stops and the
+next begins instead of inventing a transition between files.
+
+The text is tokenized **once**, into shard files in `src/run/shards/text/`: `train_000000.bin` and
+`val_000000.bin`, plain token ids at 2 bytes each, in the same format the FineWeb run uses. Later runs
+reuse them, and they're rebuilt automatically when you add, edit or remove a `.txt` file (or change
+`train_fraction`); `info.json` beside them records what they were built from.
 
 **Prerequisite — size the model to your data first.** Before training, run the token counter. It reads
 every `.txt` in `src/run/data/`, prints how many tokens you have, and (based on
@@ -234,7 +239,7 @@ plus the `batch_size` in the two `RandomWindows(...)` lines that cut the text in
 the call, so they use their defaults: `eval_interval` (validate every N steps; default 100) and
 `accumulation_steps`, which adds up the gradients of several batches before each update, for an
 effectively bigger batch than fits in memory (add e.g. `accumulation_steps=4,`; default 1 = off).
-That's the whole recipe: **text files → tokenize → build model → `train(...)` →
+That's the whole recipe: **text files → shards → build model → `train(...)` →
 save → `generate(...)`.**
 
 **Every run gets its own folder** in `src/checkpoints/`, e.g. `gpt2_L2_D128_6.8M_20261018-122043/`

@@ -17,7 +17,8 @@ data/*.bin
 data/*.npy
 data/*.arrow
 
-# tokenized shard files from src/run/prepare_data.py (large, regenerable)
+# tokenized shard files: shards/text/ from train_on_text.py, shards/fineweb/ from prepare_data.py
+# (large, regenerable)
 src/run/shards/
 
 # downloaded training corpora (keep one book tracked so a fresh clone has something to train on)
