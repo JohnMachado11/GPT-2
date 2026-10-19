@@ -13,6 +13,7 @@ from gpt2.train.optimizer import AdamW
 from gpt2.train.loop import train
 from gpt2.checkpoint import new_run_dir
 from gpt2.train.data import RandomWindows
+from gpt2.train.shards import text_shards
 
 
 here = Path(__file__).parent
@@ -27,35 +28,24 @@ transformers_logging.set_verbosity_error()   # hide the harmless ">1024 tokens" 
 
 tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
-# Read EVERY .txt in the data folder and tokenize each one.
-# Drop in as many files as you like -- no code changes needed.
-files = sorted(data_dir.glob("*.txt"))
-if not files:
-    raise SystemExit(f"no .txt files found in {data_dir} -- add some text to train on")
-
 # GPT-2's one special token: <|endoftext|> (id 50256). It marks a document
 # boundary -- an ending behind it, a beginning in front of it.
 endoftext_id = tokenizer.eos_token_id
-separator = torch.tensor([endoftext_id])
 
 # Hold out the last 10% of EACH FILE for validation (the model never trains on it), so we can
 # spot overfitting -- if train loss keeps falling while val loss rises, it's memorizing.
 # Splitting per file (not once over everything) means every file shows up in BOTH sets --
 # otherwise whichever file sorts last lands entirely (or mostly) in val and is barely trained on.
 # 0.9 = 90% train / 10% val is a good ratio for a SMALL dataset like this. With a much
-# bigger corpus you'd raise it (e.g. 0.99) -- a tiny fraction is already plenty of val tokens.
-train_parts = []
-val_parts = []
-for f in files:
-    file_tokens = torch.tensor(tokenizer.encode(f.read_text(), split_special_tokens=True))
-    split = int(0.9 * len(file_tokens))
-    train_parts.append(torch.cat([file_tokens[:split], separator]))
-    val_parts.append(torch.cat([file_tokens[split:], separator]))
-    print(f"  - {f.name}: {len(file_tokens)} tokens -> {split} train / {len(file_tokens) - split} val")
+# bigger corpus you'd raise it -- the FineWeb run uses 0.99 (prepare_data.py).
+train_fraction = 0.9
 
-# Join the per-file pieces: all train pieces into one stream, all val pieces into another.
-train_data = torch.cat(train_parts)
-val_data = torch.cat(val_parts)
+# EVERY .txt in the data folder is one document -- drop in as many files as you like, no code
+# changes needed. The text is tokenized ONCE into shard files (the same train_*.bin / val_*.bin
+# format the FineWeb run uses) in src/run/shards/text/. Later runs reuse them; adding, editing or
+# removing a .txt file, or changing train_fraction, rebuilds them. info.json records what they
+# were built from.
+train_data, val_data = text_shards(data_dir, tokenizer, here / "shards" / "text", train_fraction)
 print(f"\nsplit -> {len(train_data)} train tokens, {len(val_data)} val tokens\n")
 
 # Show where the documents meet: the tail of one document with <|endoftext|>
