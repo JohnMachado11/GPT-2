@@ -35,7 +35,10 @@ from gpt2.train.shards import PrepRefused, is_finished_build_of, prepare, read_j
 
 
 here = Path(__file__).parent
-# One exact version of FineWeb-Edu, so a prep resumed days later -- after a new release -- reads the same pages
+# FineWeb-Edu on Hugging Face: https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu
+# One exact version of it, so a prep resumed days later -- after a new release -- reads the same pages.
+# Its 10B-token sample, at this version:
+# https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/tree/87f09149ef4734204d70ed1d046ddc9ca3f2b8f9/sample/10BT
 REVISION = "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
 SOURCE = f"HuggingFaceFW/fineweb-edu sample-10BT @ {REVISION}"
 # Val gets smaller shards than train: its half-filled buffer is saved with every checkpoint, and val fills
