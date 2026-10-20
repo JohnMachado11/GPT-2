@@ -21,7 +21,8 @@ It's meant to be a **template / base** for three things:
 ```
 src/gpt2/
   model/         config, layernorm, attention, feedforward, block, gpt  (the architecture)
-  train/         optimizer (AdamW), schedule (warmup+cosine), loop, data, shards (the trainer)
+  train/         optimizer (AdamW), schedule (warmup+cosine), loop, data, shards, device (the trainer)
+                 resumable_prep: lets a long FineWeb prep survive Colab disconnects
   from_hf.py     load the real GPT-2 weights into this model            (the HF bridge)
   checkpoint.py  run folders: save, load, resume                        (checkpointing)
 src/run/         train_on_text.py, count_tokens.py, scaling_config.py   (train + size the model)
