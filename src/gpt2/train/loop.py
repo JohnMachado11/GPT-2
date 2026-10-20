@@ -1,4 +1,5 @@
 import math
+import time
 from pathlib import Path
 
 import torch
@@ -40,6 +41,15 @@ def run_settings(train_batches, num_steps, max_learning_rate, warmup_steps, min_
     }
 
 
+def duration(seconds):
+    # a length of time, short and readable: 42s, 12m, 2.6h
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    if seconds < 3600:
+        return f"{seconds / 60:.0f}m"
+    return f"{seconds / 3600:.1f}h"
+
+
 def train(
     model,
     optimizer,
@@ -56,6 +66,7 @@ def train(
     accumulation_steps=1,   # micro-batches whose gradients add up into each step (1 = off)
     run_dir=None,           # folder to keep checkpoints in (None = don't save); resume if it has a last.pt
     checkpoint_interval=500,    # save last.pt every this many steps (and always at the end)
+    print_interval=1,       # print a progress line every this many steps (and always at the last one)
 ):
     if accumulation_steps < 1:
         raise ValueError(f"accumulation_steps must be at least 1, got {accumulation_steps}")
@@ -65,6 +76,9 @@ def train(
 
     if eval_interval < 1:
         raise ValueError(f"eval_interval must be at least 1, got {eval_interval}")
+
+    if print_interval < 1:
+        raise ValueError(f"print_interval must be at least 1, got {print_interval}")
 
     if val_batches is not None and getattr(val_batches, "generator", "") is None:
         print("warning: the validation RandomWindows has no seed -- each check scores different random "
@@ -102,7 +116,15 @@ def train(
         # the first last.pt save) -- so it's checked on every start, fresh or resumed.
         best_val_loss = best_val_loss_so_far(run_dir, model)
 
+    # for the progress line: the speed counts only the training itself; the time left uses this session's
+    # average step, validation and saves included, so it stays honest
+    tokens_per_step = train_batches.batch_size * train_batches.context_length * accumulation_steps
+    step_width = len(str(num_steps))                     # so the step numbers line up
+    session_started = time.perf_counter()
+    training_seconds, tokens_since_print = 0.0, 0
+
     for step in range(start_step, num_steps):
+        step_started = time.perf_counter()
         optimizer.zero_grad()                             # 0. clear last step's gradients
         loss_sum = 0.0
         for _ in range(accumulation_steps):               # 1. several micro-batches; their gradients ADD UP
@@ -134,8 +156,18 @@ def train(
         )
         optimizer.learning_rate = learning_rate           #    hand it to AdamW
         optimizer.step()                                  # 5. step every weight downhill
+        training_seconds += time.perf_counter() - step_started    #    (for the speed: training time only)
+        tokens_since_print += tokens_per_step
 
-        print(f"step {step:4d} | loss {train_loss:.4f} | lr {learning_rate:.5f}")  # 6. report progress
+        if step % print_interval == 0 or step == num_steps - 1:      # 6. report progress
+            elapsed = time.perf_counter() - session_started
+            steps_done = step - start_step + 1                    #    this session's
+            seconds_left = elapsed / steps_done * (num_steps - step - 1)
+            print(f"step {step:{step_width}d}/{num_steps} | loss {train_loss:.4f} | lr {learning_rate:.5f} | "
+                  f"{tokens_since_print / training_seconds:,.0f} tokens/s | "
+                  f"{duration(elapsed)} done, ~{duration(seconds_left)} left")
+            training_seconds, tokens_since_print = 0.0, 0
+
         history["steps"].append(step)
         history["train_loss"].append(train_loss)
 
@@ -143,7 +175,7 @@ def train(
         #    scored -- check the held-out set (the overfitting alarm)
         if val_batches is not None and (step % eval_interval == 0 or step == num_steps - 1):
             val_loss = estimate_loss(model, val_batches, device, use_bf16=use_bf16)
-            print(f"  step {step:4d} | val loss {val_loss:.4f}")
+            print(f"  step {step:{step_width}d} | val loss {val_loss:.4f}")
             history["val_steps"].append(step)
             history["val_loss"].append(val_loss)
 
@@ -154,6 +186,6 @@ def train(
         # 8. save everything needed to resume: every checkpoint_interval steps, and always at the very end
         if run_dir is not None and ((step + 1) % checkpoint_interval == 0 or step == num_steps - 1):
             save_last(run_dir, model, optimizer, step, train_batches, history, settings)
-            print(f"  step {step:4d} | saved last.pt")
+            print(f"  step {step:{step_width}d} | saved last.pt")
 
     return history

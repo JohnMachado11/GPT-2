@@ -236,10 +236,15 @@ config = GPTConfig(
 
 plus the `batch_size` in the two `RandomWindows(...)` lines that cut the text into batches, and the
 `train(...)` call's settings: `num_steps`, `max_learning_rate`, `warmup_steps`, `min_learning_rate`,
-`max_gradient_norm`, and `checkpoint_interval` (how often `last.pt` is saved). Two more settings aren't in
-the call, so they use their defaults: `eval_interval` (validate every N steps; default 100) and
-`accumulation_steps`, which adds up the gradients of several batches before each update, for an
-effectively bigger batch than fits in memory (add e.g. `accumulation_steps=4,`; default 1 = off).
+`max_gradient_norm`, and `checkpoint_interval` (how often `last.pt` is saved). Three more settings aren't
+in the call, so they use their defaults: `eval_interval` (validate every N steps; default 100),
+`print_interval` (print a progress line every N steps; default 1), and `accumulation_steps`, which adds up
+the gradients of several batches before each update, for an effectively bigger batch than fits in memory
+(add e.g. `accumulation_steps=4,`; default 1 = off). Each progress line shows the step, the loss, the
+learning rate, the speed in tokens per second, how long training has been running since it started (or
+since a resume restarted it), and roughly how long is left:
+`step  1200/19073 | loss 3.4512 | lr 0.00058 | 412,337 tokens/s | 26m done, ~6.4h left`. The first line
+includes one-time warm-up, so it reads slower than the rest.
 That's the whole recipe: **text files → shards → build model → `train(...)` →
 save → `generate(...)`.**
 

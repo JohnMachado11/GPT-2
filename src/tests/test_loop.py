@@ -1,9 +1,12 @@
+import re
+
 import pytest
 import torch
 from gpt2.model.config import GPTConfig
 from gpt2.model.gpt import GPT
 from gpt2.train.optimizer import AdamW
-from gpt2.train.loop import estimate_loss, train
+import gpt2.train.loop as loop_module
+from gpt2.train.loop import duration, estimate_loss, train
 from gpt2.train.schedule import learning_rate_at
 from gpt2.train.data import RandomWindows, ShardLoader
 from gpt2.train.shards import write_shard
@@ -168,7 +171,8 @@ def test_validation_runs_every_eval_interval_steps_and_at_the_end():
     assert history["val_steps"] == [0, 5, 10, 11]
 
 
-@pytest.mark.parametrize("bad", [{"eval_interval": 0}, {"checkpoint_interval": 0}, {"accumulation_steps": 0}])
+@pytest.mark.parametrize("bad", [{"eval_interval": 0}, {"checkpoint_interval": 0}, {"accumulation_steps": 0},
+                                 {"print_interval": 0}])
 def test_train_rejects_impossible_intervals_before_training(bad):
     model = make_model()
     before = [p.clone() for p in model.parameters()]
@@ -253,3 +257,89 @@ def test_validation_uses_bf16_when_training_does():
     model.blocks[0].attn.qkv.register_forward_hook(lambda module, inputs, output: dtypes.append(output.dtype))
     short_run(model, RandomWindows(EASY, 8, 16), use_bf16=True, val_batches=RandomWindows(EASY, 8, 16, seed=0))
     assert dtypes and all(dtype == torch.bfloat16 for dtype in dtypes)     # 1 training forward + 20 validation
+
+
+# ---------- the progress line ----------
+
+def fake_clock(monkeypatch, model, seconds_per_forward, first_forward=None):
+    # a clock that moves only while the model runs, so speeds and times come out exact. It starts at an
+    # arbitrary time, as a real clock does; first_forward: the first forward's seconds (a slow warm-up)
+    clock = {"now": 1000.0, "forwards": 0}
+    def tick(*args):
+        clock["forwards"] += 1
+        clock["now"] += first_forward if clock["forwards"] == 1 and first_forward else seconds_per_forward
+    monkeypatch.setattr(loop_module.time, "perf_counter", lambda: clock["now"])
+    model.register_forward_hook(tick)
+
+
+def progress_lines(capsys):
+    # the progress lines, with the loss and learning rate (checked elsewhere) left out
+    lines = [line for line in capsys.readouterr().out.splitlines() if " tokens/s " in line]
+    return [re.sub(r" \| loss \S+ \| lr \S+", "", line) for line in lines]
+
+
+def test_the_progress_line_shows_the_speed_and_the_time_done_and_left(monkeypatch, capsys):
+    model = make_model()
+    fake_clock(monkeypatch, model, seconds_per_forward=2.0)
+    short_run(model, RandomWindows(EASY, 8, 16), num_steps=4)
+    # 8 x 16 = 128 tokens a step, in 2 seconds: 64 tokens/s. After the first of 4 steps: 2s done, 3 x 2s left
+    assert progress_lines(capsys) == [
+        "step 0/4 | 64 tokens/s | 2s done, ~6s left",
+        "step 1/4 | 64 tokens/s | 4s done, ~4s left",
+        "step 2/4 | 64 tokens/s | 6s done, ~2s left",
+        "step 3/4 | 64 tokens/s | 8s done, ~0s left",
+    ]
+
+
+def test_the_speed_counts_every_micro_batch_and_leaves_out_validation(monkeypatch, capsys):
+    # 2 micro-batches a step: 256 tokens in 2 x 2s -- still 64 tokens/s. Validation (20 forwards, every 2
+    # steps) takes time too: it's left out of the speed, but counted in the time left
+    model = make_model()
+    fake_clock(monkeypatch, model, seconds_per_forward=2.0)
+    short_run(model, RandomWindows(EASY, 8, 16), num_steps=4, accumulation_steps=2,
+              val_batches=RandomWindows(EASY, 8, 16, seed=0), eval_interval=2)
+    lines = progress_lines(capsys)
+    assert all(" 64 tokens/s " in line for line in lines)
+    assert lines[1] == "step 1/4 | 64 tokens/s | 48s done, ~48s left"    # 4s + 40s validation + 4s
+
+
+def test_the_speed_is_for_the_steps_since_the_last_line_not_the_whole_run(monkeypatch, capsys):
+    # the first step is slow (warming up), the next two fast, printed together: the second line must show
+    # the speed of BOTH fast steps -- and not of the slow one
+    model = make_model()
+    fake_clock(monkeypatch, model, seconds_per_forward=2.0, first_forward=8.0)
+    short_run(model, RandomWindows(EASY, 8, 16), num_steps=3, print_interval=2)
+    assert progress_lines(capsys) == [
+        "step 0/3 | 16 tokens/s | 8s done, ~16s left",       # 128 tokens in 8s; 8s a step so far, 2 to go
+        "step 2/3 | 64 tokens/s | 12s done, ~0s left",       # 256 tokens in 2 x 2s
+    ]
+
+
+def test_print_interval_prints_every_nth_step_and_the_last(capsys):
+    short_run(make_model(), RandomWindows(EASY, 8, 16), num_steps=25, print_interval=10)
+    assert [line.split("/")[0] for line in progress_lines(capsys)] == ["step  0", "step 10", "step 20", "step 24"]
+
+
+def test_the_time_left_after_a_resume_counts_from_the_restart(monkeypatch, capsys, tmp_path):
+    class StopsAfter(RandomWindows):
+        def __init__(self, *args, batches):
+            super().__init__(*args)
+            self.batches = batches
+        def next_batch(self):
+            self.batches -= 1
+            if self.batches < 0:
+                raise KeyboardInterrupt("disconnected")
+            return super().next_batch()
+    with pytest.raises(KeyboardInterrupt):
+        short_run(make_model(), StopsAfter(EASY, 8, 16, batches=10), num_steps=20, run_dir=tmp_path, checkpoint_interval=5)
+    capsys.readouterr()
+    model = make_model()
+    fake_clock(monkeypatch, model, seconds_per_forward=2.0)
+    short_run(model, RandomWindows(EASY, 8, 16), num_steps=20, run_dir=tmp_path, checkpoint_interval=5)
+    # resumed at step 10: one step done in this session, 9 to go
+    assert progress_lines(capsys)[0] == "step 10/20 | 64 tokens/s | 2s done, ~18s left"
+
+
+@pytest.mark.parametrize("seconds, text", [(42, "42s"), (720, "12m"), (9360, "2.6h"), (0, "0s")])
+def test_duration_reads_as_seconds_minutes_or_hours(seconds, text):
+    assert duration(seconds) == text
