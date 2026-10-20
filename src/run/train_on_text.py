@@ -13,6 +13,7 @@ from gpt2.train.optimizer import AdamW
 from gpt2.train.loop import train
 from gpt2.checkpoint import new_run_dir
 from gpt2.train.data import RandomWindows
+from gpt2.train.device import pick_device, supports_bf16
 from gpt2.train.shards import text_shards
 
 
@@ -74,17 +75,13 @@ config = GPTConfig(
 
 model = GPT(config)
 
-if torch.cuda.is_available():
-    device = "cuda"     # NVIDIA GPU (Colab, rented GPUs)
-elif torch.backends.mps.is_available():
-    device = "mps"      # Apple GPU (Mac)
-else:
-    device = "cpu"
+device = pick_device()                  # an NVIDIA GPU, else a Mac's GPU, else the CPU
+use_bf16 = supports_bf16(device)        # only on NVIDIA GPUs that do bf16 in hardware (not free Colab's T4)
 
 if device == "cuda":
     torch.set_float32_matmul_precision("high")    # let NVIDIA GPUs use TF32 for 32-bit matrix math
 
-print(f"device -> {device} | bf16 {'on' if device == 'cuda' else 'off'}\n")
+print(f"device -> {device} | bf16 {'on' if use_bf16 else 'off'}\n")
 
 model.to(device)
 
@@ -117,7 +114,7 @@ history = train(
     max_gradient_norm=1.0,                  # GPT-3 paper's value; nanoGPT's GPT-2 retrain uses it
     val_batches=val_batches,
     device=device,
-    use_bf16=(device == "cuda"),            # bf16 on NVIDIA GPUs; Mac and CPU stay 32-bit
+    use_bf16=use_bf16,
     run_dir=run_dir,
     checkpoint_interval=100,                # save last.pt every 100 steps (and always at the end)
 )
