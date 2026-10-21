@@ -25,7 +25,8 @@ src/gpt2/
                  resumable_prep: lets a long FineWeb prep survive Colab disconnects
   from_hf.py     load the real GPT-2 weights into this model            (the HF bridge)
   checkpoint.py  run folders: save, load, resume                        (checkpointing)
-src/run/         train_on_text.py, count_tokens.py, scaling_config.py   (train + size the model)
+src/run/         settings.py                                            (the settings for training on your text)
+                 train_on_text.py, count_tokens.py                      (train + size the model)
                  prepare_data.py                                        (FineWeb -> token shards)
                  + data/*.txt · shards/                                 (your text · tokenized data)
 src/checkpoints/ one folder per training run + a README                 (git-ignored)
@@ -114,7 +115,7 @@ Requires Python 3.12. From the repo root:
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 
-# 2. make the local `gpt2` package importable (no pip install of this repo needed).
+# 2. make the local `gpt2` package (and src/run/settings.py) importable (no pip install of this repo needed).
 #    This writes one .pth file into the venv that puts src/ on the import path.
 .venv/bin/python -c "import sysconfig, os; open(os.path.join(sysconfig.get_paths()['purelib'], 'gpt2.pth'), 'w').write(os.path.abspath('src'))"
 
@@ -123,7 +124,8 @@ python3.12 -m venv .venv
                                               #    tokenizer from Hugging Face, a few MB, once)
 ```
 
-After step 2, `import gpt2` works for anything the venv's Python runs (tests, scripts, your own code).
+After step 2, `import gpt2` (and the scripts' `from run import settings`) works for anything the venv's
+Python runs (tests, scripts, your own code).
 
 ---
 
@@ -134,11 +136,11 @@ After step 2, `import gpt2` works for anything the venv's Python runs (tests, sc
 ```bash
 # 1. add text: put .txt files in src/run/data/   (The War of the Worlds is already there)
 
-# 2. size the model to your text -- prints each setting AND where it goes in train_on_text.py
+# 2. size the model to your text -- prints a model size and step count for settings.py
 .venv/bin/python src/run/count_tokens.py
 
-# 3. copy those values into src/run/train_on_text.py, then train
-#    (interrupted? set resume_run in train_on_text.py to the run's folder and run this again)
+# 3. put those values in src/run/settings.py (every setting lives there), then train
+#    (interrupted? set resume_run in settings.py to the run's folder and run this again)
 .venv/bin/python src/run/train_on_text.py
 
 # 4. talk to the model you just trained
@@ -161,39 +163,25 @@ reuse them, and they're rebuilt automatically when you add, edit or remove a `.t
 `train_fraction`); `info.json` beside them records what they were built from.
 
 **Prerequisite — size the model to your data first.** Before training, run the token counter. It reads
-every `.txt` in `src/run/data/`, prints how many tokens you have, and (based on
-`src/run/scaling_config.py`) prints a **suggested config**, laid out the same way as the code in
-`train_on_text.py`, so you can see exactly which line each value belongs on:
+every `.txt` in `src/run/data/`, prints how many tokens you have, and prints a **suggested model size and
+step count**, written the same way as the lines in `src/run/settings.py`:
 
 ```bash
 .venv/bin/python src/run/count_tokens.py
 ```
 
 ```
-Suggested config  (mode: minimum_viable)
+Suggested settings  (mode: minimum_viable)
 ----------------------------------------------------
-set these values in src/run/train_on_text.py:
+set these values in src/run/settings.py:
 
-  config = GPTConfig(
-      ...
-      context_length=64,
-      embed_dim=128,
-      num_layers=2,
-      num_heads=2,
-      dropout=0.1,
-  )
-
-  train_batches = RandomWindows(train_data, batch_size=32, ...)
-  val_batches = RandomWindows(val_data, batch_size=32, ...)
-
-  history = train(
-      ...
-      num_steps=415,
-      ...
-  )
+  embed_dim = 128
+  num_layers = 2
+  num_heads = 2
+  num_steps = 415        # at 2,048 tokens per step
 ```
 
-`scaling_config.py` has one switch, `MODE`, with two philosophies:
+`MODE`, at the bottom of `settings.py`, picks between two philosophies:
 
 - **`"minimum_viable"`** — the smallest *usable* model, a fixed size whatever your text: embed
   `minimum_embed_dim` (128), with one layer and one head per 64 of width (so 128 · 2 layers · 2 heads),
@@ -205,9 +193,8 @@ set these values in src/run/train_on_text.py:
   That's the most efficient size for that much data, not how much data OpenAI trained it on: a model
   this size keeps improving on far more (reproductions of GPT-2 small use ~10B tokens).
 
-Copy the suggested `context_length` / `embed_dim` / `num_layers` / `num_heads` / `dropout` into the
-`GPTConfig`, the `batch_size` into the two `RandomWindows(...)` lines, and `num_steps` into the
-`train(...)` call, then train.
+Put the four suggested values into `settings.py`, then train. They're suggestions: nothing changes until
+you edit `settings.py` yourself.
 
 Run the bundled end-to-end example:
 
@@ -220,38 +207,31 @@ loss** printed every 100 steps and at the last step (measured on the same held-o
 text the model never trains on — your overfitting check), checkpoints saved into a new run folder (`best.pt` and `last.pt`, see below), and finally a
 generated sample that echoes the training text.
 
-Adding data needs no code edits — just put `.txt` files in `src/run/data/`. To change the model
-size, edit the `GPTConfig(...)` in `src/run/train_on_text.py` (just after the data is loaded):
+Adding data needs no code edits — just put `.txt` files in `src/run/data/`. **Every other setting is in
+`src/run/settings.py`** -- the model's size, the learning-rate schedule, how often to validate, save and
+print, the speed switches, `resume_run`, the sample's prompt -- one per line.
+`train_on_text.py`, `count_tokens.py` and `query_trained.py` all read it, so you never edit the scripts. The model's size, for example:
 
 ```python
-config = GPTConfig(
-    vocab_size=tokenizer.vocab_size,        # 50257 (GPT-2 BPE)
-    context_length=64,                      # tokens per window
-    embed_dim=128,                          # model size: grow these three for more capacity
-    num_layers=2,
-    num_heads=2,
-    dropout=0.1,                            # GPT-2's value; regularizes against overfitting
-)
+# --- the model ---
+context_length = 64         # tokens per window: the longest text the model reads at once
+embed_dim = 128             # the model's size: grow these three for more capacity
+num_layers = 2              # (count_tokens.py suggests them for your amount of text)
+num_heads = 2
+dropout = 0.1               # GPT-2's value (at all three dropout spots); regularizes against overfitting
 ```
 
-plus the `batch_size` in the two `RandomWindows(...)` lines that cut the text into batches, and the
-`train(...)` call's settings: `num_steps`, `max_learning_rate`, `warmup_steps`, `min_learning_rate`,
-`max_gradient_norm`, and `checkpoint_interval` (how often `last.pt` is saved). Three more settings aren't
-in the call, so they use their defaults: `eval_interval` (validate every N steps; default 100),
-`print_interval` (print a progress line every N steps; default 1), and `accumulation_steps`, which adds up
-the gradients of several batches before each update, for an effectively bigger batch than fits in memory
-(add e.g. `accumulation_steps=4,`; default 1 = off). Each progress line shows the step, the loss, the
-learning rate, the speed in tokens per second, how long training has been running since it started (or
-since a resume restarted it), and roughly how long is left:
+Each progress line shows the step, the loss, the learning rate, the speed in tokens per second, how long
+training has been running since it started (or since a resume restarted it), and roughly how long is left:
 `step  1200/19073 | loss 3.4512 | lr 0.00058 | 412,337 tokens/s | 26m done, ~6.4h left`. The first line
 includes one-time warm-up (and, with `compile_model`, about a minute of compiling), so the speed and the
 time left read pessimistic at first.
 
-Two speed switches, both off by default, change how fast the model computes but not what it computes:
-`GPT(config, fast_attention=True)` runs attention through PyTorch's fused function -- the same math as the
-step-by-step version in `attention.py`, which stays as the readable reference -- and
-`train(..., compile_model=True)` runs the training through `torch.compile`. Both pay off most on NVIDIA
-GPUs (compiling first takes about a minute). `compile_model` is refused on a Mac GPU: PyTorch's compiler
+Two speed switches in `settings.py`, both off by default, change how fast the model computes but not what
+it computes: `fast_attention` runs attention through PyTorch's fused function -- the same math as the
+step-by-step version in `attention.py`, which stays as the readable reference -- and `compile_model` runs
+the training through `torch.compile`. Both pay off most on NVIDIA GPUs (compiling first takes about a
+minute). `compile_model` is refused on a Mac GPU: PyTorch's compiler
 gives wrong gradients there ([pytorch#201455](https://github.com/pytorch/pytorch/issues/201455)). Their dropout draws its randomness differently, so a run
 with a switch on differs slightly from one without; resume a run with the same switches it started with.
 
@@ -263,10 +243,10 @@ save → `generate(...)`.**
 `best.pt` (the weights at the lowest validation loss), `last.pt` (everything needed to resume),
 `config.json`, and `loss.png`. Nothing in that folder is committed to git -- the weights are large.
 
-**Resuming an interrupted run:** set `resume_run` (just above the `train(...)` call in
-`train_on_text.py`) to the run's folder name and run it again. It continues from the step after the
-last save in `last.pt` -- saves happen every `checkpoint_interval` steps (100 here), so at most that many
-steps are redone -- with the same data order, learning-rate schedule and optimizer state, so it finishes
+**Resuming an interrupted run:** set `resume_run` in `settings.py` to the run's folder name and run
+`train_on_text.py` again. It continues from the step after the last save in `last.pt` -- saves happen
+every `checkpoint_interval` steps (100 here), so at most that many steps are redone -- with the same data
+order, learning-rate schedule and optimizer state, so it finishes
 as the same run. It refuses to resume if the model, the schedule or optimizer settings, or the training
 text's length changed (the full list is in `src/checkpoints/README.md`). Set `resume_run` back to `None`
 for a fresh run.

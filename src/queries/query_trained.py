@@ -3,6 +3,7 @@ from pathlib import Path
 from transformers import AutoTokenizer
 
 from gpt2.checkpoint import load_checkpoint
+from run import settings        # the sample's prompt, length and top_k: src/run/settings.py
 
 
 checkpoints_dir = Path(__file__).parent.parent / "checkpoints"
@@ -27,8 +28,8 @@ print(f"loading {latest.name}")
 model = load_checkpoint(latest)
 tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
-prompt = "The Martians"
-token_ids = tokenizer.encode(prompt, return_tensors="pt")
-output = model.generate(token_ids, max_new_tokens=40, top_k=20, stop_at_token=tokenizer.eos_token_id)
+token_ids = tokenizer.encode(settings.prompt, return_tensors="pt")
+output = model.generate(token_ids, max_new_tokens=settings.max_new_tokens, top_k=settings.top_k,
+                        stop_at_token=tokenizer.eos_token_id)
 print("\n--- your model's continuation ---")
 print(tokenizer.decode(output[0]))
