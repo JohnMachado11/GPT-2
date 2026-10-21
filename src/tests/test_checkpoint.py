@@ -705,3 +705,34 @@ def test_train_creates_the_run_folder_before_any_training(tmp_path):
     with pytest.raises(RuntimeError, match="stop before"):
         run_train(model, optimizer, FailsImmediately(DATA, 4, 8), tmp_path / "deep" / "run", num_steps=3)
     assert (tmp_path / "deep" / "run").is_dir()              # made up front -- a bad path fails in the first second
+
+
+def test_a_compiled_run_trains_the_same_and_saves_checkpoints_a_plain_model_resumes(tmp_path, monkeypatch):
+    # torch.compile's "eager" backend: the same wrapper, without minutes of compiling in a test
+    real_compile, compiled_models = torch.compile, []
+    class Counted(torch.nn.Module):             # counts the forward passes that go through the compiled copy
+        def __init__(self, model):
+            super().__init__()
+            self.compiled, self.calls = real_compile(model, backend="eager"), 0
+        def forward(self, *inputs):
+            self.calls += 1
+            return self.compiled(*inputs)
+    def eager_compile(model):
+        compiled_models.append(Counted(model))
+        return compiled_models[-1]
+    monkeypatch.setattr(torch, "compile", eager_compile)
+    model, optimizer = make_run(dropout=0.0)
+    plain = run_train(model, optimizer, RandomWindows(DATA, 4, 8), tmp_path / "plain", num_steps=10)
+    model, optimizer = make_run(dropout=0.0)
+    with pytest.raises(KeyboardInterrupt):
+        run_train(model, optimizer, DisconnectAfter(DATA, 4, 8, batches_before_disconnect=7), tmp_path / "compiled",
+                  num_steps=10, compile_model=True)
+    # the compiled run really compiled it, and ran everything through it: 7 training steps, and validation
+    # at steps 0 and 5 (20 batches each)
+    assert [counted.compiled._orig_mod for counted in compiled_models] == [model]
+    assert compiled_models[0].calls == 7 + 2 * 20
+    saved = torch.load(tmp_path / "compiled" / "last.pt")["model_state"]
+    assert not any(name.startswith("_orig_mod") for name in saved)        # the plain names, not the wrapper's
+    model, optimizer = make_run(dropout=0.0)                               # a plain model picks it up
+    compiled = run_train(model, optimizer, RandomWindows(DATA, 4, 8), tmp_path / "compiled", num_steps=10)
+    assert compiled == plain

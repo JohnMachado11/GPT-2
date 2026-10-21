@@ -7,13 +7,15 @@ import math
 
 
 class GPT(nn.Module):
-    def __init__(self, config):
+    # fast_attention: compute attention with PyTorch's fused function -- the same math, faster (see
+    # attention.py). It's not part of the config: it changes how the model computes, not what.
+    def __init__(self, config, fast_attention=False):
         super().__init__()
         self.config = config
         self.token_embedding = nn.Embedding(config.vocab_size, config.embed_dim)
         self.position_embedding = nn.Embedding(config.context_length, config.embed_dim)
         self.embedding_dropout = nn.Dropout(config.dropout)
-        self.blocks = nn.ModuleList([Block(config) for _ in range(config.num_layers)])
+        self.blocks = nn.ModuleList([Block(config, fast_attention) for _ in range(config.num_layers)])
         self.final_norm = LayerNorm(config.embed_dim)
         self.unembed = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
         self.unembed.weight = self.token_embedding.weight   # weight tying
@@ -46,16 +48,23 @@ class GPT(nn.Module):
 
     @torch.no_grad()
     def generate(self, token_ids, max_new_tokens, temperature=1.0, top_k=None, stop_at_token=None):
-        for _ in range(max_new_tokens):
-            cropped_ids = token_ids[:, -self.config.context_length:]
-            logits, _ = self(cropped_ids)
-            logits = logits[:, -1, :] / temperature
-            if top_k is not None:
-                values, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < values[:, [-1]]] = -float("inf")
-            probs = F.softmax(logits, dim=-1)
-            next_id = torch.multinomial(probs, num_samples=1)
-            token_ids = torch.cat((token_ids, next_id), dim=1)
-            if stop_at_token is not None and (next_id == stop_at_token).all():
-                break
+        # always without dropout -- even right after train(), which leaves the model in training mode --
+        # then back to whichever mode it was in. (A Mac's fused attention can't drop out here at all.)
+        was_training = self.training
+        self.eval()
+        try:
+            for _ in range(max_new_tokens):
+                cropped_ids = token_ids[:, -self.config.context_length:]
+                logits, _ = self(cropped_ids)
+                logits = logits[:, -1, :] / temperature
+                if top_k is not None:
+                    values, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < values[:, [-1]]] = -float("inf")
+                probs = F.softmax(logits, dim=-1)
+                next_id = torch.multinomial(probs, num_samples=1)
+                token_ids = torch.cat((token_ids, next_id), dim=1)
+                if stop_at_token is not None and (next_id == stop_at_token).all():
+                    break
+        finally:
+            self.train(was_training)
         return token_ids

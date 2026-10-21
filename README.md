@@ -244,7 +244,17 @@ the gradients of several batches before each update, for an effectively bigger b
 learning rate, the speed in tokens per second, how long training has been running since it started (or
 since a resume restarted it), and roughly how long is left:
 `step  1200/19073 | loss 3.4512 | lr 0.00058 | 412,337 tokens/s | 26m done, ~6.4h left`. The first line
-includes one-time warm-up, so it reads slower than the rest.
+includes one-time warm-up (and, with `compile_model`, about a minute of compiling), so the speed and the
+time left read pessimistic at first.
+
+Two speed switches, both off by default, change how fast the model computes but not what it computes:
+`GPT(config, fast_attention=True)` runs attention through PyTorch's fused function -- the same math as the
+step-by-step version in `attention.py`, which stays as the readable reference -- and
+`train(..., compile_model=True)` runs the training through `torch.compile`. Both pay off most on NVIDIA
+GPUs (compiling first takes about a minute). `compile_model` is refused on a Mac GPU: PyTorch's compiler
+gives wrong gradients there ([pytorch#201455](https://github.com/pytorch/pytorch/issues/201455)). Their dropout draws its randomness differently, so a run
+with a switch on differs slightly from one without; resume a run with the same switches it started with.
+
 That's the whole recipe: **text files → shards → build model → `train(...)` →
 save → `generate(...)`.**
 

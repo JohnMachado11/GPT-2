@@ -1,10 +1,12 @@
+import pytest
 import torch
 from transformers import GPT2Config, GPT2LMHeadModel
 
 from gpt2.from_hf import from_hugging_face_model
 
 
-def test_my_model_matches_hugging_faces_gpt2_exactly():
+@pytest.mark.parametrize("fast_attention", [False, True])
+def test_my_model_matches_hugging_faces_gpt2_exactly(fast_attention):
     # The README's headline claim, tested without downloading anything: build a SMALL, randomly
     # initialized Hugging Face GPT-2, copy its weights into my model with the same code load_gpt2 uses,
     # and compare outputs in float64. Any difference in the architecture -- attention scaling, the
@@ -17,6 +19,8 @@ def test_my_model_matches_hugging_faces_gpt2_exactly():
                                             # to exactly 1/0 and each bias to 0, which would hide a mix-up
     hugging_face_model.eval()
     mine = from_hugging_face_model(hugging_face_model)
+    for block in mine.blocks:
+        block.attn.fast = fast_attention
 
     hugging_face_model.double()
     mine.double()

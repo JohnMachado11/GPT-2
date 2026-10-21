@@ -67,6 +67,7 @@ def train(
     run_dir=None,           # folder to keep checkpoints in (None = don't save); resume if it has a last.pt
     checkpoint_interval=500,    # save last.pt every this many steps (and always at the end)
     print_interval=1,       # print a progress line every this many steps (and always at the last one)
+    compile_model=False,    # torch.compile the forward pass: faster on NVIDIA GPUs, after ~1 min of compiling
 ):
     if accumulation_steps < 1:
         raise ValueError(f"accumulation_steps must be at least 1, got {accumulation_steps}")
@@ -79,6 +80,12 @@ def train(
 
     if print_interval < 1:
         raise ValueError(f"print_interval must be at least 1, got {print_interval}")
+
+    # torch.compile on a Mac GPU makes the position-embedding gradient batch-size times too big -- a PyTorch
+    # bug (github.com/pytorch/pytorch/issues/201455), still in 2.15 for batches of 32 or more
+    if compile_model and torch.device(device).type == "mps":
+        raise ValueError("compile_model doesn't work on a Mac GPU: PyTorch's compiler gives wrong gradients there "
+                         "(github.com/pytorch/pytorch/issues/201455) -- leave it off")
 
     if val_batches is not None and getattr(val_batches, "generator", "") is None:
         print("warning: the validation RandomWindows has no seed -- each check scores different random "
@@ -116,6 +123,11 @@ def train(
         # the first last.pt save) -- so it's checked on every start, fresh or resumed.
         best_val_loss = best_val_loss_so_far(run_dir, model)
 
+    # torch.compile wraps the model -- the same weights, run as compiled code. The training steps run the
+    # wrapper, while checkpoints keep saving the model itself (the wrapper saves the weights under renamed
+    # keys, "_orig_mod.<name>", that a plain model can't load back)
+    forward_model = torch.compile(model) if compile_model else model
+
     # for the progress line: the speed counts only the training itself; the time left uses this session's
     # average step, validation and saves included, so it stays honest
     tokens_per_step = train_batches.batch_size * train_batches.context_length * accumulation_steps
@@ -131,7 +143,7 @@ def train(
             token_ids, targets = train_batches.next_batch()   #    next batch of training windows
             # bf16 autocast: the matrix math runs in 16-bit when use_bf16 is on; a no-op when it's off
             with torch.autocast(device_type=torch.device(device).type, dtype=torch.bfloat16, enabled=use_bf16):
-                loss = model(token_ids, targets)[1]       #    forward -> loss (the big logits are freed at once)
+                loss = forward_model(token_ids, targets)[1]   #    forward -> loss (the big logits are freed at once)
             (loss / accumulation_steps).backward()        # 2. backward, divided so N micro-batches count as ONE batch
             loss_sum += loss.detach()                     #    running total, for the report
         train_loss = (loss_sum / accumulation_steps).item()
@@ -174,7 +186,7 @@ def train(
         # 7. every eval_interval steps -- and at the final step, so the finished model is always
         #    scored -- check the held-out set (the overfitting alarm)
         if val_batches is not None and (step % eval_interval == 0 or step == num_steps - 1):
-            val_loss = estimate_loss(model, val_batches, device, use_bf16=use_bf16)
+            val_loss = estimate_loss(forward_model, val_batches, device, use_bf16=use_bf16)
             print(f"  step {step:{step_width}d} | val loss {val_loss:.4f}")
             history["val_steps"].append(step)
             history["val_loss"].append(val_loss)

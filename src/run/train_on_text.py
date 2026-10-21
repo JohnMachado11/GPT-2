@@ -73,7 +73,11 @@ config = GPTConfig(
     dropout=0.1,                            # GPT-2's value; regularizes against overfitting
 )
 
-model = GPT(config)
+# two speed switches -- they change how fast it trains, not what it learns
+fast_attention = False          # True: the same math, computed faster (see attention.py)
+compile_model = False           # True: torch.compile -- faster on NVIDIA GPUs, after ~1 min of compiling (not on a Mac GPU)
+
+model = GPT(config, fast_attention=fast_attention)
 
 device = pick_device()                  # an NVIDIA GPU, else a Mac's GPU, else the CPU
 use_bf16 = supports_bf16(device)        # only on NVIDIA GPUs that do bf16 in hardware (not free Colab's T4)
@@ -81,7 +85,8 @@ use_bf16 = supports_bf16(device)        # only on NVIDIA GPUs that do bf16 in ha
 if device == "cuda":
     torch.set_float32_matmul_precision("high")    # let NVIDIA GPUs use TF32 for 32-bit matrix math
 
-print(f"device -> {device} | bf16 {'on' if use_bf16 else 'off'}\n")
+print(f"device -> {device} | bf16 {'on' if use_bf16 else 'off'} | fast attention {'on' if fast_attention else 'off'} | "
+      f"compile {'on' if compile_model else 'off'}\n")
 
 model.to(device)
 
@@ -117,6 +122,7 @@ history = train(
     use_bf16=use_bf16,
     run_dir=run_dir,
     checkpoint_interval=100,                # save last.pt every 100 steps (and always at the end)
+    compile_model=compile_model,
 )
 
 plt.plot(history["steps"], history["train_loss"], label="train")
