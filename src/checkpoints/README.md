@@ -54,7 +54,7 @@ is oldest → newest, because the timestamp is `YYYYMMDD-HHMMSS`. (Different sha
 
 ## Resuming an interrupted run
 
-In `src/run/train_on_text.py`, set `resume_run` to the run's folder name, then run the script again:
+In `src/run/settings.py`, set `resume_run` to the run's folder name, then run `src/run/train_on_text.py` again:
 
 ```python
 resume_run = "gpt2_L2_D128_6.8M_20261018-122043"
@@ -74,7 +74,7 @@ It refuses to resume, before changing anything, if any of these differ from the 
   regenerated under the same name is caught, even at the same length)
 
 It can't detect text of exactly the same length being swapped in, an edit only in the middle of a
-shard, changes to the *other* shard files, a `seed` added to or removed from the training
+shard, changes to the *other* shard files, a `seed=` argument added to or removed from the training
 `RandomWindows`, or a change to the validation data, `eval_interval` or `use_bf16` -- so keep those the
 same mid-run. Set `resume_run` back to `None` for a fresh run.
 

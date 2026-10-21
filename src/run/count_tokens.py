@@ -3,7 +3,7 @@ from pathlib import Path
 from transformers import AutoTokenizer
 from transformers import logging as transformers_logging
 
-import scaling_config
+from run import settings        # reads src/run/settings.py, never changes it
 
 
 def round_to_multiple_of_64(value):
@@ -36,49 +36,34 @@ print("-" * 52)
 print(f"{'TOTAL':<28}{total_chars:>12,}{total_tokens:>12,}")
 
 
-# --- suggested model size, from the token count + scaling_config.MODE ---
+# --- suggested model size, from the token count + settings.MODE ---
 head_dim = 64
+# what one training step reads (with accumulation, each step reads several batches)
+tokens_per_step = settings.batch_size * settings.accumulation_steps * settings.context_length
 
-if scaling_config.MODE == "chinchilla_exact":
+if settings.MODE == "chinchilla_exact":
     # compute-optimal: ~20 tokens per parameter, trained about one epoch
     embed_dim = round_to_multiple_of_64((total_tokens / 3.75) ** (1 / 3))
     num_layers = num_heads = embed_dim // head_dim
-    num_steps = round(total_tokens / (scaling_config.batch_size * scaling_config.context_length))
-elif scaling_config.MODE == "minimum_viable":
+    num_steps = round(total_tokens / tokens_per_step)
+elif settings.MODE == "minimum_viable":
     # smallest usable model, over-trained a fixed number of epochs
-    embed_dim = scaling_config.minimum_embed_dim
+    embed_dim = settings.minimum_embed_dim
     num_layers = num_heads = embed_dim // head_dim
-    num_steps = round(
-        scaling_config.minimum_viable_epochs
-        * total_tokens
-        / (scaling_config.batch_size * scaling_config.context_length)
-    )
+    num_steps = round(settings.minimum_viable_epochs * total_tokens / tokens_per_step)
 else:
-    raise SystemExit(f"unknown MODE in scaling_config.py: {scaling_config.MODE!r}")
+    raise SystemExit(f"unknown MODE in settings.py: {settings.MODE!r}")
 
 print()
-# printed in the same shape as the code in train_on_text.py, so each value is easy to find
-print(f"Suggested config  (mode: {scaling_config.MODE})")
+# printed the same way the lines look in settings.py, so each value is easy to find
+print(f"Suggested settings  (mode: {settings.MODE})")
 print("-" * 52)
-print("set these values in src/run/train_on_text.py:")
+print("set these values in src/run/settings.py:")
 print()
-print("  config = GPTConfig(")
-print("      ...")
-print(f"      context_length={scaling_config.context_length},")
-print(f"      embed_dim={embed_dim},")
-print(f"      num_layers={num_layers},")
-print(f"      num_heads={num_heads},")
-print(f"      dropout={scaling_config.dropout},")
-print("  )")
-print()
-print(f"  train_batches = RandomWindows(train_data, batch_size={scaling_config.batch_size}, ...)")
-print(f"  val_batches = RandomWindows(val_data, batch_size={scaling_config.batch_size}, ...)")
-print()
-print("  history = train(")
-print("      ...")
-print(f"      num_steps={num_steps},")
-print("      ...")
-print("  )")
+print(f"  embed_dim = {embed_dim}")
+print(f"  num_layers = {num_layers}")
+print(f"  num_heads = {num_heads}")
+print(f"  num_steps = {num_steps}        # at {tokens_per_step:,} tokens per step")
 
 optimal_params = round(total_tokens / 20)
 if optimal_params >= 1_000_000:
@@ -88,10 +73,10 @@ else:
 print("-" * 52)
 print(f"  Chinchilla optimal ~= {optimal_params_text} params (tokens / 20)")
 
-if scaling_config.MODE == "minimum_viable":
-    print(f"  note: smallest usable model, over-trained ~{scaling_config.minimum_viable_epochs} epochs.")
+if settings.MODE == "minimum_viable":
+    print(f"  note: smallest usable model, over-trained ~{settings.minimum_viable_epochs} epochs.")
     print("        add more text to justify a bigger model.")
-elif scaling_config.MODE == "chinchilla_exact" and embed_dim < 128:
+elif settings.MODE == "chinchilla_exact" and embed_dim < 128:
     print('  note: below a usable size for this little text — try MODE = "minimum_viable".')
 
 print()
