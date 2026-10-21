@@ -6,10 +6,11 @@ from gpt2.model.feedforward import FeedForward
 
 
 class Block(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, fast_attention=False):
         super().__init__()
         self.norm_before_attn = LayerNorm(config.embed_dim)
-        self.attn = CausalSelfAttention(config.embed_dim, config.num_heads, config.bias, config.dropout)
+        self.attn = CausalSelfAttention(config.embed_dim, config.num_heads, config.bias, config.dropout,
+                                        config.context_length, fast=fast_attention)
         self.norm_before_ff = LayerNorm(config.embed_dim)
         self.ff = FeedForward(config.embed_dim, config.bias, config.dropout)
     

@@ -1,4 +1,4 @@
-torch==2.14.0
+torch==2.14.1
 numpy==2.5.1           # token shard files (src/gpt2/train/shards.py)
 transformers==5.14.1   # GPT-2 BPE tokenizer + loading the real GPT-2 weights
 matplotlib==3.11.1     # loss-curve plot in src/run/train_on_text.py

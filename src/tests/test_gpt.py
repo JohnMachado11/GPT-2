@@ -144,3 +144,57 @@ def test_gpt2_weight_initialization():
 def test_config_refuses_an_embed_dim_that_heads_cant_split_evenly():
     with pytest.raises(ValueError, match="divide evenly"):
         GPTConfig(vocab_size=50, context_length=8, embed_dim=30, num_layers=1, num_heads=4)
+
+
+def test_fast_attention_switches_every_layer():
+    config = GPTConfig(vocab_size=26, context_length=16, embed_dim=32, num_layers=3, num_heads=4)
+    assert all(block.attn.fast for block in GPT(config, fast_attention=True).blocks)
+    assert not any(block.attn.fast for block in GPT(config).blocks)        # the step-by-step one by default
+
+
+def test_a_fast_attention_model_computes_the_same_as_the_step_by_step_one():
+    # same weights, both ways, in float64: the same logits and gradients, and the same generated tokens
+    config = GPTConfig(vocab_size=26, context_length=16, embed_dim=32, num_layers=2, num_heads=4)
+    torch.manual_seed(0)
+    slow = GPT(config).double()
+    fast = GPT(config, fast_attention=True).double()
+    fast.load_state_dict(slow.state_dict())
+    ids = torch.randint(0, 26, (2, 16))
+    slow_logits, slow_loss = slow(ids, ids)
+    fast_logits, fast_loss = fast(ids, ids)
+    slow_loss.backward()
+    fast_loss.backward()
+    assert torch.allclose(slow_logits, fast_logits, atol=1e-12)
+    assert all(torch.allclose(a.grad, b.grad, atol=1e-12) for a, b in zip(slow.parameters(), fast.parameters()))
+    slow.eval()
+    fast.eval()
+    prompt = torch.randint(0, 26, (1, 4))
+    torch.manual_seed(1)
+    slow_text = slow.generate(prompt, max_new_tokens=20)
+    torch.manual_seed(1)
+    assert torch.equal(fast.generate(prompt, max_new_tokens=20), slow_text)
+
+
+@pytest.mark.parametrize("fast_attention", [False, True])
+def test_generate_never_drops_out_and_leaves_the_mode_as_it_found_it(fast_attention):
+    # train() leaves the model in training mode: writing text straight after must still be dropout-free
+    config = GPTConfig(vocab_size=26, context_length=16, embed_dim=32, num_layers=2, num_heads=4, dropout=0.5)
+    torch.manual_seed(0)
+    model = GPT(config, fast_attention=fast_attention)
+    prompt = torch.randint(0, 26, (1, 4))
+    model.eval()
+    torch.manual_seed(1)
+    expected = model.generate(prompt, max_new_tokens=10)
+    model.train()
+    torch.manual_seed(1)
+    assert torch.equal(model.generate(prompt, max_new_tokens=10), expected)
+    assert model.training                                       # put back the way it was
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs a Mac GPU")
+def test_a_mac_gpu_writes_text_with_fast_attention_and_dropout_straight_after_training():
+    # a Mac's fused attention can't drop out without gradients -- generate() must not ask it to
+    config = GPTConfig(vocab_size=26, context_length=16, embed_dim=32, num_layers=2, num_heads=4, dropout=0.1)
+    model = GPT(config, fast_attention=True).to("mps").train()
+    out = model.generate(torch.randint(0, 26, (1, 4), device="mps"), max_new_tokens=5)
+    assert out.shape == (1, 9)

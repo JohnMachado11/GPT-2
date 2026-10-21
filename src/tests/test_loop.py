@@ -181,6 +181,15 @@ def test_train_rejects_impossible_intervals_before_training(bad):
     assert all(torch.equal(a, b) for a, b in zip(before, model.parameters()))     # refused up front
 
 
+def test_compiling_on_a_mac_gpu_is_refused_before_training():
+    # torch.compile gives wrong gradients on a Mac GPU (pytorch#201455): refused up front, on any machine
+    model = make_model()
+    before = [p.clone() for p in model.parameters()]
+    with pytest.raises(ValueError, match="Mac GPU"):
+        short_run(model, RandomWindows(EASY, 8, 16), device="mps", compile_model=True)
+    assert all(torch.equal(a, b) for a, b in zip(before, model.parameters()))
+
+
 def test_a_warmup_longer_than_the_run_is_warned_about(capsys):
     short_run(make_model(), RandomWindows(EASY, 8, 16), num_steps=2, warmup_steps=50)
     assert "longer than the run" in capsys.readouterr().out
