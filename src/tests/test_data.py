@@ -131,6 +131,19 @@ def test_shard_loader_keeps_a_shard_of_exactly_one_batch(tmp_path):
     assert loader.next_batch()[1].flatten().tolist() == [1, 2, 3, 4, 5, 6]
 
 
+def test_shard_loader_batches_per_pass_is_what_one_pass_reads(tmp_path):
+    # shard lengths around the edges: 7 = exactly one batch, 12 = one short of two, 13 = exactly two
+    lengths = [7, 12, 13, 19, 20, 25]
+    for i, length in enumerate(lengths):
+        write_shard(tmp_path / f"train_{i:06d}.bin", list(range(1000 * i, 1000 * i + length)))
+    loader = ShardLoader(sorted(tmp_path.glob("train_*.bin")), batch_size=2, context_length=3)
+    first = loader.next_batch()[0]
+    batches = 1
+    while not torch.equal(loader.next_batch()[0], first):      # count batches until it wraps back to the start
+        batches += 1
+    assert loader.batches_per_pass() == batches == 1 + 1 + 2 + 3 + 3 + 4
+
+
 def test_get_batch_works_on_a_stream_of_exactly_context_plus_one():
     token_ids, targets = get_batch(torch.arange(9), batch_size=3, context_length=8)
     assert token_ids.tolist() == [list(range(8))] * 3
