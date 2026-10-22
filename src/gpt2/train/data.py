@@ -120,6 +120,12 @@ class ShardLoader:
         self.position += span
         return token_ids.to(self.device), targets.to(self.device)
 
+    def batches_per_pass(self):
+        # how many batches one pass over the shards gives: each shard's whole batches (the few tokens
+        # left at a shard's end, too few for one more, are skipped -- next_batch() moves on)
+        span = self.batch_size * self.context_length
+        return sum((len(read_shard(path)) - 1) // span for path in self.shard_paths)
+
     def state(self):
         # exactly where the loader is -- a checkpoint saves this. The shard is recorded by FILE NAME,
         # not by its number in the list, so a resume can't silently land in a different file if the
