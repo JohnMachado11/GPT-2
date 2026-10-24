@@ -92,7 +92,7 @@ print(tokenizer.decode(model.generate(ids, max_new_tokens=1, top_k=1)[0]))   # .
 | `src/gpt2/train/` | the optimizer, learning-rate schedule, training loop and data |
 | `src/run/` | the scripts you run, and their settings (`settings.py`, `settings_gpt2_small.py`) |
 | `src/queries/` | prompt OpenAI's GPT-2, or the model you trained |
-| `src/checkpoints/` | one folder per training run |
+| `src/checkpoints/` | one folder per training run: **`best.pt` is the model**; `last.pt` adds the optimizer's state, to resume training |
 | `src/playgrounds/` | small scripts to poke the core layers |
 | `src/tests/` | the tests |
 
