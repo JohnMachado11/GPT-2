@@ -12,7 +12,7 @@ stores weights as (out, in), so I flip those with .t() when copying.
 """
 
 import torch
-from transformers import GPT2LMHeadModel
+from transformers import GPT2Config, GPT2LMHeadModel
 
 from gpt2.model.config import GPTConfig
 from gpt2.model.gpt import GPT
@@ -82,3 +82,35 @@ def from_hugging_face_model(hugging_face_model):
     assert copied == len(my_params), f"copied {copied}, but my model has {len(my_params)} params"
     model.eval()
     return model
+
+
+def to_hugging_face_model(model):
+    """The other direction: a Hugging Face GPT2LMHeadModel holding MY model's weights -- the same names table and
+    the same four flipped matrices, run backwards. Its save_pretrained() writes a model anyone can load with
+    transformers' from_pretrained(), or with load_gpt2() above."""
+    hugging_face_model = GPT2LMHeadModel(GPT2Config(
+        vocab_size=model.config.vocab_size,
+        n_positions=model.config.context_length,
+        n_embd=model.config.embed_dim,
+        n_layer=model.config.num_layers,
+        n_head=model.config.num_heads,
+        activation_function="gelu_new",         # GPT-2's tanh GELU, as in feedforward.py
+        resid_pdrop=model.config.dropout, embd_pdrop=model.config.dropout, attn_pdrop=model.config.dropout,
+    ))
+    my_weights = model.state_dict()
+
+    copied = 0
+    with torch.no_grad():
+        for gpt2_name, tensor in hugging_face_model.state_dict().items():
+            my_key = _to_my_name(gpt2_name)
+            if my_key is None:
+                continue                        # lm_head: tied to the token embedding, so it's already filled
+            mine = my_weights[my_key]
+            if any(gpt2_name.endswith(suffix) for suffix in _TRANSPOSED):
+                mine = mine.t()
+            tensor.copy_(mine)
+            copied += 1
+
+    assert copied == len(dict(model.named_parameters())), f"copied {copied} of my model's weights"
+    hugging_face_model.eval()
+    return hugging_face_model

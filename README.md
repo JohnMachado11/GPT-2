@@ -8,7 +8,8 @@ Every part is a hand-written module with a plain, spelled-out name (`token_embed
 to follow*.
 
 **This code trained GPT-2 small from scratch, and it beats OpenAI's:** validation loss **3.05 vs 3.30** on the same
-99.6M held-out tokens of FineWeb-Edu, after 15.6 hours on one Colab A100. [The numbers ↓](#train-gpt-2-small-from-scratch)
+99.6M held-out tokens of FineWeb-Edu, after 15.6 hours on one Colab A100. [The numbers ↓](#train-gpt-2-small-from-scratch) ·
+[The model on Hugging Face](https://huggingface.co/John-Machado/gpt2-small-fineweb-edu)
 
 - **Train GPT-2 small (124M) from scratch** on 10B tokens of FineWeb-Edu, on one cloud GPU, and score it against OpenAI's.
 - **Train your own** on any `.txt` files. One book trains in about a minute on an M1 Pro.
@@ -23,7 +24,8 @@ Needs Python 3.12. From the repo root:
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -c "import sysconfig, os; open(os.path.join(sysconfig.get_paths()['purelib'], 'gpt2.pth'), 'w').write(os.path.abspath('src'))"
-.venv/bin/python -m pytest src/tests -q      # the first run downloads GPT-2's tokenizer (a few MB)
+# the first run downloads GPT-2's tokenizer (a few MB)
+.venv/bin/python -m pytest src/tests -q
 ```
 
 ## Run it
@@ -57,12 +59,28 @@ GPT-2 small's shape (124M parameters, 12 layers, 768 wide, context 1024), traine
 Both models score the exact same windows of text. (OpenAI's model trained on other web text, so FineWeb-Edu is
 home turf for this one.)
 
-Three commands, with every setting in `src/run/settings_gpt2_small.py`:
+**Download it:** [John-Machado/gpt2-small-fineweb-edu](https://huggingface.co/John-Machado/gpt2-small-fineweb-edu)
+on Hugging Face. It loads into this repo's readable model just like OpenAI's:
+
+```python
+from gpt2.from_hf import load_gpt2
+model = load_gpt2("John-Machado/gpt2-small-fineweb-edu")
+```
+
+The commands, with every setting in `src/run/settings_gpt2_small.py`:
 
 ```bash
-.venv/bin/python src/run/prepare_data.py --out SHARDS                                # FineWeb-Edu -> 20 GB of token shards
-.venv/bin/python src/run/train_gpt2_small.py --data SHARDS --run-dir RUN             # one pass; run it again to resume
-.venv/bin/python src/run/compare_to_openai.py --data SHARDS --run-dir RUN            # yours vs OpenAI's, on the same text
+# 1. prepare the data: FineWeb-Edu -> 20 GB of token shards
+.venv/bin/python src/run/prepare_data.py --out SHARDS
+
+# 2. train: one pass over the shards (stopped? run it again to resume)
+.venv/bin/python src/run/train_gpt2_small.py --data SHARDS --run-dir RUN
+
+# 3. compare: yours vs OpenAI's, on the same held-out text
+.venv/bin/python src/run/compare_to_openai.py --data SHARDS --run-dir RUN
+
+# 4. share: save it in Hugging Face's format
+.venv/bin/python src/run/export_to_hf.py --run-dir RUN
 ```
 
 <details>
