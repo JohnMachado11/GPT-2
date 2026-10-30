@@ -10,7 +10,8 @@ embed_dim = 768
 num_layers = 12
 num_heads = 12
 dropout = 0.0               # one pass over 10B fresh tokens never shows the model the same text twice, so
-                            # there's little to overfit; nanoGPT and llm.c use 0.0 here (GPT-2 itself used 0.1)
+                            # there's little to overfit; nanoGPT and llm.c use 0.0 here (GPT-1 used 0.1; the
+                            # GPT-2 and GPT-3 papers don't give a value)
 
 # --- the batch: 524,288 tokens per step (the GPT-3 paper's, for 125M) ---
 #   tokens per step = batch_size x accumulation_steps x context_length = 16 x 32 x 1024 = 524,288
