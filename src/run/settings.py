@@ -7,7 +7,9 @@ context_length = 64         # tokens per window: the longest text the model read
 embed_dim = 128             # the model's size: grow these three for more capacity
 num_layers = 2              # (count_tokens.py suggests them for your amount of text)
 num_heads = 2
-dropout = 0.1               # GPT-2's value (at all three dropout spots); regularizes against overfitting
+dropout = 0.1               # regularizes against overfitting. 0.1 is GPT-1's value, at its three dropout spots
+                            # (residual, embedding, attention); the GPT-2 paper gives no value of its own, saying
+                            # it largely follows GPT-1
 
 # --- the data ---
 # Hold out the last 10% of EACH .txt file for validation (the model never trains on it), so we can spot
