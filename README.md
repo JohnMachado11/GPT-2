@@ -7,8 +7,11 @@ Every part is a hand-written module with a plain, spelled-out name (`token_embed
 `learning_rate` — no `wte`, `ctx`, `lr`). Think *nanoGPT, but every weight and every step is named and easy
 to follow*.
 
-**This code trained GPT-2 small from scratch, and it beats OpenAI's:** validation loss **3.05 vs 3.30** on the same
-99.6M held-out tokens of FineWeb-Edu, after 15.6 hours on one Colab A100. [The numbers ↓](#train-gpt-2-small-from-scratch) ·
+**This code trained GPT-2 small from scratch, and it beats OpenAI's.** On the same 99.6M held-out tokens of
+FineWeb-Edu, its validation loss is **3.05**, against **3.30** for OpenAI's GPT-2 small, after 15.6 hours of training
+on one Colab A100.
+
+[How I trained it (blog post)](https://johnmachado.dev/blog/how-i-trained-gpt2-small/) · [The numbers ↓](#train-gpt-2-small-from-scratch) ·
 [The model on Hugging Face](https://huggingface.co/John-Machado/gpt2-small-fineweb-edu)
 
 - **Train GPT-2 small (124M) from scratch** on 10B tokens of FineWeb-Edu, on one cloud GPU, and score it against OpenAI's.
@@ -42,6 +45,9 @@ Stopped partway? Put the run's folder name (from `src/checkpoints/`) in `resume_
 step 4 again. Set it back to `None` for a new run.
 
 ## Train GPT-2 small from scratch
+
+The whole story of this run, from the data and a PyTorch bug to the overnight training and what it cost, is in the
+blog post [How I trained GPT-2 small from scratch](https://johnmachado.dev/blog/how-i-trained-gpt2-small/).
 
 GPT-2 small's shape (124M parameters, 12 layers, 768 wide, context 1024), trained on one pass over FineWeb-Edu:
 
