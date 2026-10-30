@@ -46,8 +46,8 @@ step 4 again. Set it back to `None` for a new run.
 
 ## Train GPT-2 small from scratch
 
-The whole story of this run, from the data and a PyTorch bug to the overnight training and what it cost, is in the
-blog post [How I trained GPT-2 small from scratch](https://johnmachado.dev/blog/how-i-trained-gpt2-small/).
+The whole story of this run, from the data to the overnight training and what it cost, is in the blog post
+[How I trained GPT-2 small from scratch](https://johnmachado.dev/blog/how-i-trained-gpt2-small/).
 
 GPT-2 small's shape (124M parameters, 12 layers, 768 wide, context 1024), trained on one pass over FineWeb-Edu:
 
