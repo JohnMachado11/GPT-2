@@ -132,7 +132,8 @@ def load_last(run_dir, model, optimizer, train_batches, settings):
     state = torch.load(Path(run_dir) / "last.pt", map_location="cpu")
 
     if state["config"] != asdict(model.config):
-        raise ValueError(f"can't resume: last.pt is a {state['config']} model, not {asdict(model.config)}")
+        raise ValueError(f"can't resume: last.pt is a {state['config']} model, not {asdict(model.config)} -- "
+                         f"resume with the settings it was trained with (for train_gpt2.py, the same --size)")
     if state["settings"] != settings:
         raise ValueError(f"can't resume {run_dir}: it was trained with {state['settings']}, not {settings}")
     optimizer.check_state_dict(state["optimizer_state"])
@@ -170,5 +171,6 @@ def best_val_loss_so_far(run_dir, model):
         return float("inf")
     best = torch.load(best_path, map_location="cpu", mmap=True)     # mmap: reads the one number, not all the weights
     if best["config"] != asdict(model.config):
-        raise ValueError(f"{best_path} belongs to a different model ({best['config']}) -- use a new run folder")
+        raise ValueError(f"{best_path} belongs to a different model ({best['config']}) -- resume with the settings "
+                         f"it was trained with (for train_gpt2.py, the same --size), or use a new run folder")
     return best["val_loss"]

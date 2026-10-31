@@ -1,5 +1,5 @@
 # Every setting for training GPT-2 small (124M) from scratch on FineWeb-Edu, in one place.
-# train_gpt2_small.py and compare_to_openai.py read this file -- change values here, not in the scripts.
+# train_gpt2.py and compare_to_openai.py read this file when given --size small -- change values here, not in the scripts.
 # (The two folders -- where the shards are, and where checkpoints go -- are command-line flags instead,
 # since they differ from machine to machine.)
 # The recipe: GPT-2 small's shape, trained with the GPT-3 paper's settings for its 125M model.
@@ -20,7 +20,7 @@ accumulation_steps = 32     # Out of memory? Halve batch_size and double this, t
 
 # --- training ---
 # There's no num_steps: the run is ONE pass over the training shards, worked out from the data
-# (about 18,900 steps for FineWeb-Edu's 10B tokens).
+# (18,794 steps for FineWeb-Edu's 10B tokens).
 # Fix the random draws: the starting weights and the sample. (On an NVIDIA GPU, two runs can still differ
 # in the last decimals.)
 seed = 1337
@@ -50,3 +50,6 @@ compile_model = True        # True: torch.compile -- faster on NVIDIA GPUs, afte
 prompt = "In this lesson, we will learn"
 max_new_tokens = 60
 top_k = 50                  # pick each next token from the top_k likeliest
+
+# --- the comparison ---
+openai_model = "gpt2"       # OpenAI's model of this size, on Hugging Face: compare_to_openai.py scores against it

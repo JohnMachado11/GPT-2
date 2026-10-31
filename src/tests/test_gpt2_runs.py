@@ -14,7 +14,7 @@ from gpt2.model.gpt import GPT
 from gpt2.train.data import ShardLoader
 from gpt2.train.loop import estimate_loss
 from gpt2.train.shards import prepare, shard_paths
-from run import settings_gpt2_small
+from run import settings_gpt2_small, settings_gpt2_medium
 
 
 TOKENIZER = AutoTokenizer.from_pretrained("gpt2")
@@ -30,21 +30,23 @@ def load_script(name):
     return module
 
 
-train_gpt2_small = load_script("train_gpt2_small")
+train_gpt2 = load_script("train_gpt2")
 compare_to_openai = load_script("compare_to_openai")
 
 
 @pytest.fixture
 def tiny(monkeypatch):
     # the real recipe and scripts, shrunk to a model the CPU trains in seconds: 2 x 2 x 16 = 64 tokens a step
+    # (both sizes shrunk the same way)
     for name, value in dict(context_length=16, embed_dim=32, num_layers=1, num_heads=2, batch_size=2,
                             accumulation_steps=2, warmup_steps=3, eval_interval=5, checkpoint_interval=8,
                             print_interval=1, fast_attention=False, compile_model=False, max_new_tokens=3).items():
         monkeypatch.setattr(settings_gpt2_small, name, value)
-    for script in (train_gpt2_small, compare_to_openai):
+        monkeypatch.setattr(settings_gpt2_medium, name, value)
+    for script in (train_gpt2, compare_to_openai):
         monkeypatch.setattr(script, "pick_device", lambda: "cpu")
     # the tokenizer this file already loaded (loading it again asks Hugging Face online every time)
-    monkeypatch.setattr(train_gpt2_small, "AutoTokenizer", types.SimpleNamespace(from_pretrained=lambda name: TOKENIZER))
+    monkeypatch.setattr(train_gpt2, "AutoTokenizer", types.SimpleNamespace(from_pretrained=lambda name: TOKENIZER))
 
 
 def prep(out):
@@ -54,8 +56,8 @@ def prep(out):
     return out
 
 
-def run(data, run_dir):
-    train_gpt2_small.main(argparse.Namespace(data=str(data), run_dir=str(run_dir)))
+def run(data, run_dir, size="small"):
+    train_gpt2.main(argparse.Namespace(size=size, data=str(data), run_dir=str(run_dir)))
 
 
 def whole_batches(data, name):
@@ -92,7 +94,7 @@ def test_running_it_again_resumes_and_ends_exactly_as_a_straight_run(tmp_path, t
     run(data, tmp_path / "straight")
 
     # a disconnect partway: the 23rd batch never comes (step 11; the last save was after step 7)
-    real_train = train_gpt2_small.train
+    real_train = train_gpt2.train
     def disconnected(model, optimizer, train_batches, **options):
         real_next, calls = train_batches.next_batch, [0]
         def next_batch():
@@ -102,10 +104,10 @@ def test_running_it_again_resumes_and_ends_exactly_as_a_straight_run(tmp_path, t
             return real_next()
         train_batches.next_batch = next_batch
         return real_train(model, optimizer, train_batches, **options)
-    monkeypatch.setattr(train_gpt2_small, "train", disconnected)
+    monkeypatch.setattr(train_gpt2, "train", disconnected)
     with pytest.raises(KeyboardInterrupt):
         run(data, tmp_path / "resumed")
-    monkeypatch.setattr(train_gpt2_small, "train", real_train)
+    monkeypatch.setattr(train_gpt2, "train", real_train)
     capsys.readouterr()
 
     run(data, tmp_path / "resumed")                       # the SAME command again
@@ -132,14 +134,34 @@ def test_refuses_shards_that_arent_all_there(tmp_path, tiny, damage):
     assert not (tmp_path / "run").exists()                # refused before anything was made
 
 
+@pytest.mark.parametrize("size, width", [("small", 32), ("medium", 48)])
+def test_size_picks_its_own_settings_file(tmp_path, tiny, monkeypatch, size, width):
+    monkeypatch.setattr(settings_gpt2_medium, "embed_dim", 48)    # tell the two tiny sizes apart
+    run(prep(tmp_path / "data"), tmp_path / "run", size=size)
+    assert torch.load(tmp_path / "run" / "last.pt", weights_only=False)["config"]["embed_dim"] == width
+
+
+@pytest.mark.parametrize("saved", ["last.pt and best.pt", "best.pt only"])
+def test_resuming_with_another_size_says_to_pass_the_same_size(tmp_path, tiny, monkeypatch, saved):
+    data = prep(tmp_path / "data")
+    run(data, tmp_path / "run")                                   # a tiny small run
+    if saved == "best.pt only":
+        (tmp_path / "run" / "last.pt").unlink()
+    monkeypatch.setattr(settings_gpt2_medium, "embed_dim", 48)    # medium's tiny shape differs
+    before = {path.name: path.read_bytes() for path in (tmp_path / "run").glob("*.pt")}
+    with pytest.raises(ValueError, match="the same --size"):
+        run(data, tmp_path / "run", size="medium")
+    assert {path.name: path.read_bytes() for path in (tmp_path / "run").glob("*.pt")} == before    # left as it was
+
+
 def test_refuses_a_prep_too_small_for_one_step(tmp_path, tiny, monkeypatch):
     monkeypatch.setattr(settings_gpt2_small, "accumulation_steps", 10_000)
     with pytest.raises(SystemExit, match="too few train tokens"):
         run(prep(tmp_path / "data"), tmp_path / "run")
 
 
-def compare(data, run_dir):
-    compare_to_openai.main(argparse.Namespace(data=str(data), run_dir=str(run_dir)))
+def compare(data, run_dir, size="small"):
+    compare_to_openai.main(argparse.Namespace(size=size, data=str(data), run_dir=str(run_dir)))
 
 
 def tiny_model(seed):
@@ -155,7 +177,7 @@ def saved_model(run_dir):
 
 def scores(output):
     return (float(re.search(r"your model +([\d.]+)", output).group(1)),
-            float(re.search(r"OpenAI's GPT-2 small +([\d.]+)", output).group(1)))
+            float(re.search(r"OpenAI's GPT-2 \w+ +([\d.]+)", output).group(1)))
 
 
 def test_compare_scores_both_models_on_the_same_windows(tmp_path, tiny, capsys, monkeypatch):
@@ -197,6 +219,28 @@ def test_compare_scores_all_of_val_once(tmp_path, tiny, capsys, monkeypatch):
     every = whole_batches(data, "val")
     assert scored == [every, every]                        # both models: every val batch, none twice
     assert f"the same {every * SPAN:,} validation tokens" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("size, openai_model", [("small", "gpt2"), ("medium", "gpt2-medium")])
+def test_compare_scores_against_openais_model_of_the_same_size(tmp_path, tiny, capsys, monkeypatch, size, openai_model):
+    data, run_dir = prep(tmp_path / "data"), saved_model(tmp_path / "run")
+    loaded = []
+    monkeypatch.setattr(compare_to_openai, "load_gpt2", lambda name: loaded.append(name) or tiny_model(seed=1))
+    capsys.readouterr()
+    compare(data, run_dir, size=size)
+    assert loaded == [openai_model]
+    assert f"OpenAI's GPT-2 {size} " in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name, value", [("embed_dim", 48), ("num_layers", 2), ("num_heads", 4)])
+def test_compare_refuses_a_run_of_another_size(tmp_path, tiny, monkeypatch, name, value):
+    data, run_dir = prep(tmp_path / "data"), saved_model(tmp_path / "run")     # tiny "small": 32 wide, 1 layer, 2 heads
+    monkeypatch.setattr(settings_gpt2_medium, name, value)                      # medium's tiny shape differs in one way
+    loaded = []
+    monkeypatch.setattr(compare_to_openai, "load_gpt2", lambda name: loaded.append(name) or tiny_model(seed=1))
+    with pytest.raises(SystemExit, match="isn't a GPT-2 medium run"):
+        compare(data, run_dir, size="medium")
+    assert loaded == []                                    # refused before downloading OpenAI's model
 
 
 def test_compare_refuses_a_folder_that_isnt_a_finished_prep(tmp_path, tiny, monkeypatch):
