@@ -7,9 +7,10 @@ Every part is a hand-written module with a plain, spelled-out name (`token_embed
 `learning_rate` — no `wte`, `ctx`, `lr`). Think *nanoGPT, but every weight and every step is named and easy
 to follow*.
 
-**This code trained GPT-2 small from scratch, and it beats OpenAI's.** On the same 99.6M held-out tokens of
-FineWeb-Edu, its validation loss is **3.05**, against **3.30** for OpenAI's GPT-2 small, after 15.6 hours of training
-on one Colab A100.
+This code trained GPT-2 small from scratch and achieved a lower validation loss than OpenAI's GPT-2 small on the same
+99.6M held-out FineWeb-Edu tokens (**3.05 vs. 3.30**), after 15.6 hours of training on one Colab A100. This model
+trained on FineWeb-Edu and OpenAI's didn't, so the comparison favors this model and isn't a measure of which is better
+overall.
 
 [How I trained it (blog post)](https://johnmachado.dev/blog/how-i-trained-gpt2-small/) · [The numbers ↓](#train-gpt-2-small-from-scratch) ·
 [The model on Hugging Face](https://huggingface.co/John-Machado/gpt2-small-fineweb-edu)
