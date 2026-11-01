@@ -4,7 +4,7 @@ from pathlib import Path
 
 import torch
 
-from gpt2.checkpoint import best_val_loss_so_far, load_last, save_best, save_last
+from gpt2.checkpoint import best_val_loss_so_far, load_last, save_best, save_last, save_snapshot
 from gpt2.train.schedule import learning_rate_at
 
 
@@ -68,6 +68,8 @@ def train(
     checkpoint_interval=500,    # save last.pt every this many steps (and always at the end)
     print_interval=1,       # print a progress line every this many steps (and always at the last one)
     compile_model=False,    # torch.compile the forward pass: faster on NVIDIA GPUs, after ~1 min of compiling
+    snapshot_steps=(),      # keep a copy of the weights after each of these many steps (0 = before training),
+                            # in run_dir/snapshots/ -- not replaced as training goes on, unlike best.pt and last.pt
 ):
     if accumulation_steps < 1:
         raise ValueError(f"accumulation_steps must be at least 1, got {accumulation_steps}")
@@ -80,6 +82,10 @@ def train(
 
     if print_interval < 1:
         raise ValueError(f"print_interval must be at least 1, got {print_interval}")
+
+    snapshot_steps = set(snapshot_steps)
+    if snapshot_steps and run_dir is None:
+        raise ValueError("snapshot_steps needs a run_dir to save the snapshots in")
 
     # torch.compile on a Mac GPU makes the position-embedding gradient batch-size times too big -- a PyTorch
     # bug (github.com/pytorch/pytorch/issues/201455), still in 2.15 for batches of 32 or more
@@ -96,11 +102,16 @@ def train(
         print(f"warning: warmup_steps ({warmup_steps}) is longer than the run ({num_steps} steps) -- "
               f"the learning rate will never reach its max or decay")
 
+    beyond_the_run =[steps for steps in snapshot_steps if steps >= num_steps]
+    if beyond_the_run:
+        print(f"warning: snapshot_steps from {min(beyond_the_run)} on are past the end of the run ({num_steps} steps), "
+              f"so they're skipped (the weights after the last step are in last.pt)")
+
     if run_dir is not None:
         Path(run_dir).mkdir(parents=True, exist_ok=True)    # fail NOW if the folder can't be made, not hours in
 
     model.train()
-    history = {"steps": [], "train_loss": [], "val_steps": [], "val_loss": []}
+    history = {"steps": [], "train_loss": [], "gradient_norm": [], "val_steps": [], "val_loss": []}
     start_step = 0
     best_val_loss = float("inf")
 
@@ -136,6 +147,11 @@ def train(
     training_seconds, tokens_since_print = 0.0, 0
 
     for step in range(start_step, num_steps):
+        # a snapshot of the weights after `step` steps: the ones this step is about to change. Taken before the
+        # clock starts, so the speed counts only the training
+        if step in snapshot_steps:
+            save_snapshot(run_dir, model, step)
+            print(f"  saved the weights after {step:,} steps -> snapshots/step_{step:05d}.pt")
         step_started = time.perf_counter()
         optimizer.zero_grad()                             # 0. clear last step's gradients
         loss_sum = 0.0
@@ -152,14 +168,17 @@ def train(
 
         gradient_norm = torch.nn.utils.clip_grad_norm_(   # 3. cap the TOTAL size of all gradients
             model.parameters(), max_gradient_norm         #    if they add up to more than this, scale
-        )                                                 #    them all down -- same direction, shorter
+        ).item()                                          #    them all down -- same direction, shorter
                                                           #    step. Stops one freak batch from
-                                                          #    wrecking the weights.
+                                                          #    wrecking the weights. Hands back the
+                                                          #    total size from BEFORE the cap. A spike
+                                                          #    in it is an early warning, often before
+                                                          #    the loss shows it.
         # A NaN/inf gradient -- possible even when the loss looks normal -- would turn EVERY weight into
         # NaN in the update below. Stop first, so the weights and the last checkpoint stay good.
-        if not torch.isfinite(gradient_norm):
+        if not math.isfinite(gradient_norm):
             raise RuntimeError(
-                f"step {step}: gradients became {gradient_norm.item()} -- training diverged. "
+                f"step {step}: gradients became {gradient_norm} -- training diverged. "
                 f"Stopped BEFORE updating the weights, so the last checkpoint is still good."
             )
 
@@ -176,12 +195,13 @@ def train(
             steps_done = step - start_step + 1                    #    this session's
             seconds_left = elapsed / steps_done * (num_steps - step - 1)
             print(f"step {step:{step_width}d}/{num_steps} | loss {train_loss:.4f} | lr {learning_rate:.5f} | "
-                  f"{tokens_since_print / training_seconds:,.0f} tokens/s | "
+                  f"gradient norm {gradient_norm:.3f} | {tokens_since_print / training_seconds:,.0f} tokens/s | "
                   f"{duration(elapsed)} done, ~{duration(seconds_left)} left")
             training_seconds, tokens_since_print = 0.0, 0
 
         history["steps"].append(step)
         history["train_loss"].append(train_loss)
+        history["gradient_norm"].append(gradient_norm)
 
         # 7. every eval_interval steps -- and at the final step, so the finished model is always
         #    scored -- check the held-out set (the overfitting alarm)

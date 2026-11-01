@@ -237,7 +237,7 @@ every 1000, so step 3c has something to resume from (3d puts it back):
 ```
 
 **You should see:**
-- `device -> cuda | bf16 on | fast attention on | compile on`, then `... 188 steps of 524,288 tokens`;
+- `device -> cuda | bf16 on | fast attention on | compile on | snapshots off`, then `... 188 steps of 524,288 tokens`;
 - a warning that warmup is longer than the run (normal for this short test);
 - about a minute of silence (compiling), then `step 0/188 | loss 11.0...`, then a line every 10 steps;
 - once it's going, about **176,000 tokens/s**, and about **14 GB** of GPU RAM in Colab's **Resources** panel (top right).
@@ -330,6 +330,17 @@ drive.flush_and_unmount()
 **You should see:** `124M parameters | 9,854,302,149 train tokens ... | 18,794 steps of 524,288 tokens`, about a minute
 of compiling, then a line every 10 steps. The loss falls from about 11.0 to about 3.0, and "left" settles around 15.5 h.
 
+**To also keep snapshots** (copies of the weights from along the way, for looking back at how the model learned), add
+this line to the cell above, between the `rsync` and training lines. It belongs in the cell because a reconnect clones
+a fresh copy of the code, with snapshots off again:
+
+```python
+!sed -i 's/^save_snapshots = False/save_snapshots = True/' src/run/settings_gpt2_small.py
+```
+
+The first line training prints then ends with `| snapshots on` -- check it after every reconnect. Snapshots need about
+20 GB more on Drive: about 60 GB free, or 120 GB+ to never empty the Trash.
+
 **While it trains:**
 
 - **Leave the tab open, and don't refresh it.** The page may say "Saving failed", or even "disconnected", while the
@@ -346,8 +357,10 @@ of compiling, then a line every 10 steps. The loss falls from about 11.0 to abou
 
   `best.pt` (the model, 0.5 GB) is replaced at each new lowest validation loss, checked every 250 steps.
   `last.pt` (everything needed to resume, 1.5 GB) is replaced every 1000 steps, about every 50 minutes.
+  With snapshots on, `snapshots/` also gets a copy of the weights after 0, 50, 100 and 250 steps, then every 500 up to
+  18,500 (41 copies, 0.5 GB each), which nothing replaces.
 - **Drive's Trash fills up:** each replaced file goes there -- about 65 GB over the whole run. With less than ~100 GB
-  free, empty it every few hours (drive.google.com → Trash → Empty trash).
+  free (~120 GB with snapshots on), empty it every few hours (drive.google.com → Trash → Empty trash).
 - **If it really stopped** (no `python3` in `nvidia-smi`, or the runtime is gone): reconnect to an A100, run step 1,
   then this cell again. **You should see** `resuming gpt2-run from step ...`.
 
@@ -383,7 +396,8 @@ scoring both on the same 99,631,104 validation tokens
 
 1. **Runtime → Disconnect and delete runtime.** An idle A100 still uses compute units.
 2. From drive.google.com, **download `gpt2-run/best.pt`** (0.5 GB) -- the model. (`last.pt` is only needed to keep
-   training; `loss.png` is the loss curve.)
+   training; `loss.png` is the loss curve; `snapshots/`, if you turned them on, the copies of the weights from along
+   the way.)
 3. **Empty Drive's Trash.** Delete `gpt2-data` (20 GB) too, unless you'll train again.
 
 **To use the model on your computer:** put `best.pt` in a folder like `src/checkpoints/gpt2-run/`, then run

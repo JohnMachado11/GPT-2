@@ -48,6 +48,15 @@ checkpoint_interval = 500   # save last.pt every this many steps (and at the end
                             # Half of small's 1000, since medium's steps take longer (500 is roughly an hour on an A100)
 print_interval = 10         # print a progress line every this many steps (and at the last one)
 
+# --- copies of the weights along the way ---
+# With save_snapshots on, the run folder's snapshots/ keeps a copy of the weights after each of snapshot_steps
+# (0 = before training): 0, 50, 100, 250, then every 500 up to 18,500, 41 in all -- more early, where the model
+# changes fastest. The same steps as small, so the two sizes can be compared after the same amount of text. ~1.4 GB
+# each, ~58 GB in all -- unlike best.pt and last.pt, nothing replaces them as training goes on. The weights after
+# the last step are in last.pt.
+save_snapshots = False      # True: keep them, to look back at how the model learned (off by default, for the space)
+snapshot_steps = [0, 50, 100, 250] + list(range(500, 19000, 500))
+
 # --- two speed switches: they change how fast it trains, not what it learns ---
 fast_attention = True       # True: the same math, computed faster -- FlashAttention on recent NVIDIA GPUs
 compile_model = True        # True: torch.compile -- faster on NVIDIA GPUs, after some compiling (~1 min for small,

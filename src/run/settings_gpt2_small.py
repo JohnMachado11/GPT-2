@@ -40,6 +40,14 @@ eval_interval = 250         # check the validation loss every this many steps (a
 checkpoint_interval = 1000  # save last.pt every this many steps (and at the end): a disconnect loses at most this many
 print_interval = 10         # print a progress line every this many steps (and at the last one)
 
+# --- copies of the weights along the way ---
+# With save_snapshots on, the run folder's snapshots/ keeps a copy of the weights after each of snapshot_steps
+# (0 = before training): 0, 50, 100, 250, then every 500 up to 18,500, 41 in all -- more early, where the model
+# changes fastest. ~0.5 GB each, ~20 GB in all -- unlike best.pt and last.pt, nothing replaces them as training goes
+# on. The weights after the last step are in last.pt.
+save_snapshots = False      # True: keep them, to look back at how the model learned (off by default, for the space)
+snapshot_steps = [0, 50, 100, 250] + list(range(500, 19000, 500))
+
 # --- two speed switches: they change how fast it trains, not what it learns ---
 fast_attention = True       # True: the same math, computed faster -- FlashAttention on recent NVIDIA GPUs
 compile_model = True        # True: torch.compile -- faster on NVIDIA GPUs, after ~1 min of compiling (and a bit

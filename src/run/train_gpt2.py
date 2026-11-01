@@ -61,7 +61,8 @@ def main(args):
         torch.set_float32_matmul_precision("high")    # let NVIDIA GPUs use TF32 for 32-bit matrix math
     print(f"device -> {device} | bf16 {'on' if use_bf16 else 'off'} | "
           f"fast attention {'on' if settings.fast_attention else 'off'} | "
-          f"compile {'on' if settings.compile_model else 'off'}")
+          f"compile {'on' if settings.compile_model else 'off'} | "
+          f"snapshots {'on' if settings.save_snapshots else 'off'}")
     model.to(device)
 
     optimizer = AdamW(
@@ -102,6 +103,7 @@ def main(args):
         checkpoint_interval=settings.checkpoint_interval,
         print_interval=settings.print_interval,
         compile_model=settings.compile_model,
+        snapshot_steps=settings.snapshot_steps if settings.save_snapshots else (),
     )
 
     plt.plot(history["steps"], history["train_loss"], label="train")

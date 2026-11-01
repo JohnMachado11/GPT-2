@@ -40,7 +40,8 @@ def tiny(monkeypatch):
     # (both sizes shrunk the same way)
     for name, value in dict(context_length=16, embed_dim=32, num_layers=1, num_heads=2, batch_size=2,
                             accumulation_steps=2, warmup_steps=3, eval_interval=5, checkpoint_interval=8,
-                            print_interval=1, fast_attention=False, compile_model=False, max_new_tokens=3).items():
+                            print_interval=1, fast_attention=False, compile_model=False, max_new_tokens=3,
+                            save_snapshots=True, snapshot_steps=[0, 4]).items():
         monkeypatch.setattr(settings_gpt2_small, name, value)
         monkeypatch.setattr(settings_gpt2_medium, name, value)
     for script in (train_gpt2, compare_to_openai):
@@ -82,6 +83,9 @@ def test_trains_exactly_one_pass_over_the_train_shards(tmp_path, tiny, capsys):
     assert last["loader_state"]["file"] == shard_paths(data, "train")[-1].name
     assert (tmp_path / "run" / "best.pt").exists() and (tmp_path / "run" / "loss.png").exists()
     assert "--- sample after training ---" in output
+    assert sorted(path.name for path in (tmp_path / "run" / "snapshots").iterdir()) == ["step_00000.pt", "step_00004.pt"]
+    assert "| snapshots on" in output
+    assert len(last["history"]["gradient_norm"]) == num_steps
 
     # the validation checks scored the VAL shards: the final model, scored there again, gets the last val loss
     model = load_checkpoint(tmp_path / "run" / "last.pt")
@@ -132,6 +136,13 @@ def test_refuses_shards_that_arent_all_there(tmp_path, tiny, damage):
     with pytest.raises(SystemExit, match="finished prep"):
         run(data, tmp_path / "run")
     assert not (tmp_path / "run").exists()                # refused before anything was made
+
+
+def test_save_snapshots_off_keeps_none(tmp_path, tiny, monkeypatch, capsys):
+    monkeypatch.setattr(settings_gpt2_small, "save_snapshots", False)     # the settings files' default
+    run(prep(tmp_path / "data"), tmp_path / "run")
+    assert "| snapshots off" in capsys.readouterr().out
+    assert (tmp_path / "run" / "last.pt").exists() and not (tmp_path / "run" / "snapshots").exists()
 
 
 @pytest.mark.parametrize("size, width", [("small", 32), ("medium", 48)])
