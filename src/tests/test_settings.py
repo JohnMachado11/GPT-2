@@ -48,14 +48,14 @@ def test_every_gpt2_setting_is_read_and_exists(gpt2_settings):
 
 @pytest.mark.parametrize("gpt2_settings", [settings_gpt2_small, settings_gpt2_medium])
 def test_snapshots_are_off_until_the_readmes_sed_turns_them_on(gpt2_settings):
-    # off by default, and the README's own sed line (read from it) turns them on; and the 41 snapshot steps the
+    # off by default, and the README's own sed line (read from it) turns them on; and the 189 snapshot steps the
     # comments and README give, all inside the 18,794-step run, so none is skipped
     assert gpt2_settings.save_snapshots is False
     seds = re.findall(r"sed -i 's/([^/]*)/([^/]*)/' src/run/settings_gpt2_small.py", readme.read_text())
     find, replace = next(sed for sed in seds if "snapshots" in sed[1])      # (the README has another sed, too)
     turned_on = re.sub(find, replace, Path(gpt2_settings.__file__).read_text(), flags=re.MULTILINE)
     assert re.search(r"^save_snapshots = True\b", turned_on, flags=re.MULTILINE)
-    assert len(set(gpt2_settings.snapshot_steps)) == 41 and max(gpt2_settings.snapshot_steps) < 18_794
+    assert len(set(gpt2_settings.snapshot_steps)) == 189 and max(gpt2_settings.snapshot_steps) < 18_794
 
 
 @pytest.mark.parametrize("gpt2_settings", [settings_gpt2_small, settings_gpt2_medium])

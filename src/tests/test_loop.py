@@ -393,6 +393,30 @@ def test_the_gradient_norm_is_recorded_every_step_and_printed_before_the_cap(cap
     assert printed == [f"{norm:.3f}" for norm in history["gradient_norm"][::2]]      # steps 0 and 2
 
 
+def test_the_gradient_norm_of_each_part_is_that_modules_own():
+    # no cap here, so the gradients left after the last step are the ones measured: each part's number must be the
+    # size of exactly that module's gradients, and every weight must be in one part
+    model = make_model()
+    history = short_run(model, RandomWindows(EASY, 8, 16), num_steps=2, max_gradient_norm=1e9)
+    by_part = history["gradient_norm_by_part"]
+    assert list(by_part) == ["token_embedding", "position_embedding",
+                             *[f"blocks.{i}.{part}" for i in range(2) for part in ("norm_before_attn", "attn",
+                                                                                     "norm_before_ff", "ff")],
+                             "final_norm"]
+    for part, norms in by_part.items():
+        weights = list(model.get_submodule(part).parameters())
+        assert len(norms) == 2 and norms[-1] == pytest.approx(torch.stack([w.grad.norm() for w in weights]).norm().item())
+    assert sum(len(list(model.get_submodule(part).parameters())) for part in by_part) == len(list(model.parameters()))
+
+
+def test_the_parts_gradient_norms_add_up_to_the_total_before_the_cap():
+    # squared and added up, the parts make the total, every step -- measured before the cap (0.01, far below it)
+    history = short_run(make_model(), RandomWindows(EASY, 8, 16), num_steps=3, max_gradient_norm=0.01)
+    for step in range(3):
+        parts_total = sum(norms[step] ** 2 for norms in history["gradient_norm_by_part"].values()) ** 0.5
+        assert parts_total == pytest.approx(history["gradient_norm"][step], rel=1e-5) and parts_total > 0.01
+
+
 def test_snapshots_hold_the_weights_after_each_of_those_many_steps(tmp_path, monkeypatch, capsys):
     # last.pt is saved after every 4 steps, so the weights at those saves are the weights after 4 and 8 steps:
     # the snapshots for 4 and 8 must be exactly those, and the one for 0 the untrained model

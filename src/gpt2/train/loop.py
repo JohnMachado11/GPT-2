@@ -111,7 +111,8 @@ def train(
         Path(run_dir).mkdir(parents=True, exist_ok=True)    # fail NOW if the folder can't be made, not hours in
 
     model.train()
-    history = {"steps": [], "train_loss": [], "gradient_norm": [], "val_steps": [], "val_loss": []}
+    history = {"steps": [], "train_loss": [], "gradient_norm": [], "gradient_norm_by_part": {}, "val_steps": [],
+               "val_loss": []}
     start_step = 0
     best_val_loss = float("inf")
 
@@ -139,6 +140,14 @@ def train(
     # keys, "_orig_mod.<name>", that a plain model can't load back)
     forward_model = torch.compile(model) if compile_model else model
 
+    # the model's parts, for a gradient norm of each, named like the modules: "blocks.3.attn.qkv.weight" is part of
+    # "blocks.3.attn" (model.blocks[3].attn), and "token_embedding.weight" of "token_embedding" (which is also the
+    # unembedding, the same weights)
+    parts = {}
+    for name, weight in model.named_parameters():
+        part = ".".join(name.split(".")[:3]) if name.startswith("blocks.") else name.split(".")[0]
+        parts.setdefault(part, []).append(weight)
+
     # for the progress line: the speed counts only the training itself; the time left uses this session's
     # average step, validation and saves included, so it stays honest
     tokens_per_step = train_batches.batch_size * train_batches.context_length * accumulation_steps
@@ -165,6 +174,12 @@ def train(
         train_loss = (loss_sum / accumulation_steps).item()
         if not math.isfinite(train_loss):
             raise RuntimeError(f"step {step}: loss became {train_loss} -- training diverged (often a learning rate that's too high)")
+
+        # each part's gradient size, measured before the cap below shrinks them, shows where in the model training
+        # pushes hardest. Its weights' sizes are combined into one the way the cap combines all of them into the
+        # total, so the parts' squares add up to the total's square
+        part_norms = torch.stack([torch.stack([weight.grad.norm() for weight in weights]).norm()
+                                  for weights in parts.values()]).tolist()
 
         gradient_norm = torch.nn.utils.clip_grad_norm_(   # 3. cap the TOTAL size of all gradients
             model.parameters(), max_gradient_norm         #    if they add up to more than this, scale
@@ -202,6 +217,8 @@ def train(
         history["steps"].append(step)
         history["train_loss"].append(train_loss)
         history["gradient_norm"].append(gradient_norm)
+        for part, norm in zip(parts, part_norms):
+            history["gradient_norm_by_part"].setdefault(part, []).append(norm)
 
         # 7. every eval_interval steps -- and at the final step, so the finished model is always
         #    scored -- check the held-out set (the overfitting alarm)

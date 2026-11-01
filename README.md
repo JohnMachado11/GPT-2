@@ -339,7 +339,8 @@ a fresh copy of the code, with snapshots off again:
 ```
 
 The first line training prints then ends with `| snapshots on` -- check it after every reconnect. Snapshots need about
-20 GB more on Drive: about 60 GB free, or 120 GB+ to never empty the Trash.
+94 GB more on Drive: about 135 GB free, or 195 GB+ to never empty the Trash. Each reconnect also saves up to 10
+snapshots again (the steps it redoes), which sends about 5 GB more to the Trash.
 
 **While it trains:**
 
@@ -357,10 +358,10 @@ The first line training prints then ends with `| snapshots on` -- check it after
 
   `best.pt` (the model, 0.5 GB) is replaced at each new lowest validation loss, checked every 250 steps.
   `last.pt` (everything needed to resume, 1.5 GB) is replaced every 1000 steps, about every 50 minutes.
-  With snapshots on, `snapshots/` also gets a copy of the weights after 0, 50, 100 and 250 steps, then every 500 up to
-  18,500 (41 copies, 0.5 GB each), which nothing replaces.
+  With snapshots on, `snapshots/` also gets a copy of the weights after 0 and 50 steps, then every 100 up to 18,700
+  (189 copies, 0.5 GB each), which nothing replaces.
 - **Drive's Trash fills up:** each replaced file goes there -- about 65 GB over the whole run. With less than ~100 GB
-  free (~120 GB with snapshots on), empty it every few hours (drive.google.com → Trash → Empty trash).
+  free (~195 GB with snapshots on), empty it every few hours (drive.google.com → Trash → Empty trash).
 - **If it really stopped** (no `python3` in `nvidia-smi`, or the runtime is gone): reconnect to an A100, run step 1,
   then this cell again. **You should see** `resuming gpt2-run from step ...`.
 
