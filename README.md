@@ -233,7 +233,7 @@ every 1000, so step 3c has something to resume from (3d puts it back):
 
 ```python
 !sed -i 's/^checkpoint_interval = 1000/checkpoint_interval = 50/' src/run/settings_gpt2_small.py
-!PYTHONPATH=src python src/run/train_gpt2_small.py --data /content/fineweb-small --run-dir /content/drive/MyDrive/gpt2-smoke
+!PYTHONPATH=src python src/run/train_gpt2.py --size small --data /content/fineweb-small --run-dir /content/drive/MyDrive/gpt2-smoke
 ```
 
 **You should see:**
@@ -321,7 +321,7 @@ to your Drive as it goes, so a disconnect loses at most about 50 minutes.
 !rsync -a --info=progress2 /content/drive/MyDrive/gpt2-data/ /content/fineweb/
 
 # train, saving into gpt2-run on your Drive (for a later retrain, use a new folder name here and in step 7)
-!PYTHONPATH=src python src/run/train_gpt2_small.py --data /content/fineweb --run-dir /content/drive/MyDrive/gpt2-run
+!PYTHONPATH=src python src/run/train_gpt2.py --size small --data /content/fineweb --run-dir /content/drive/MyDrive/gpt2-run
 
 # make sure the last saves have finished uploading to Drive
 drive.flush_and_unmount()
@@ -362,7 +362,7 @@ sample of text.
 it downloads OpenAI's model (about 550 MB). Run **step 1** first -- step 6 disconnected Drive -- then:
 
 ```python
-!PYTHONPATH=src python src/run/compare_to_openai.py --data /content/fineweb --run-dir /content/drive/MyDrive/gpt2-run
+!PYTHONPATH=src python src/run/compare_to_openai.py --size small --data /content/fineweb --run-dir /content/drive/MyDrive/gpt2-run
 ```
 
 On a new Colab machine, `/content/fineweb` is gone: use `--data /content/drive/MyDrive/gpt2-data` instead.
@@ -446,7 +446,7 @@ print(tokenizer.decode(model.generate(ids, max_new_tokens=1, top_k=1)[0]))   # .
 |---|---|
 | `src/gpt2/model/` | the model, one file per part: attention, feed-forward, LayerNorm, block, GPT |
 | `src/gpt2/train/` | the optimizer, learning-rate schedule, training loop and data |
-| `src/run/` | the scripts you run, and their settings (`settings.py`, `settings_gpt2_small.py`) |
+| `src/run/` | the scripts you run, and their settings (`settings.py`, `settings_gpt2_small.py`, `settings_gpt2_medium.py`) |
 | `src/queries/` | prompt OpenAI's GPT-2, or the model you trained |
 | `src/checkpoints/` | one folder per training run: **`best.pt` is the model**; `last.pt` adds the optimizer's state, to resume training |
 | `src/playgrounds/` | small scripts to poke the core layers |

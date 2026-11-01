@@ -1,14 +1,15 @@
-# Train GPT-2 small (124M) from scratch on the FineWeb-Edu shards prepare_data.py makes: one pass over them.
-# Every setting is in src/run/settings_gpt2_small.py. The two folders are flags, since they differ per machine.
+# Train GPT-2 from scratch on the FineWeb-Edu shards prepare_data.py makes: one pass over them.
+# --size picks the model and its settings file: small (124M, src/run/settings_gpt2_small.py) or medium
+# (355M, src/run/settings_gpt2_medium.py). The two folders are flags too, since they differ per machine.
 # On Colab, with the shards copied from Google Drive to the runtime's own disk first (reading them off Drive
 # mid-run can stall), and the run folder on Drive so the checkpoints outlive the runtime:
 #
-#   !PYTHONPATH=src python src/run/train_gpt2_small.py --data /content/fineweb --run-dir /content/drive/MyDrive/gpt2-run
+#   !PYTHONPATH=src python src/run/train_gpt2.py --size small --data /content/fineweb --run-dir /content/drive/MyDrive/gpt2-run
 #
 # Interrupted? Run the SAME command again: if --run-dir holds a last.pt, it picks up from there. When it's done,
 # drive.flush_and_unmount() makes sure the last checkpoints finish uploading.
 # (A test run on a Mac: set compile_model = False first -- it isn't allowed on a Mac GPU.)
-# Then score it against OpenAI's GPT-2 with compare_to_openai.py.
+# Then score it against OpenAI's GPT-2 of the same size with compare_to_openai.py.
 
 import argparse
 from pathlib import Path
@@ -26,10 +27,13 @@ from gpt2.train.loop import train
 from gpt2.train.data import ShardLoader
 from gpt2.train.device import pick_device, supports_bf16
 from gpt2.train.shards import is_finished_build_of, read_json, shard_paths
-from run import settings_gpt2_small as settings     # every setting: src/run/settings_gpt2_small.py
+from run import settings_gpt2_small, settings_gpt2_medium
+
+SETTINGS = {"small": settings_gpt2_small, "medium": settings_gpt2_medium}     # --size picks one
 
 
 def main(args):
+    settings = SETTINGS[args.size]          # every setting: src/run/settings_gpt2_<size>.py
     data_dir, run_dir = Path(args.data), Path(args.run_dir)
 
     # every shard there in full, before any training starts
@@ -118,7 +122,8 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train GPT-2 small from scratch on prepare_data.py's shards.")
+    parser = argparse.ArgumentParser(description="Train GPT-2 from scratch on prepare_data.py's shards.")
+    parser.add_argument("--size", required=True, choices=SETTINGS, help="which GPT-2: small or medium")
     parser.add_argument("--data", required=True,
                         help="the folder prepare_data.py wrote (on Colab: a copy on the runtime's own disk)")
     parser.add_argument("--run-dir", required=True,
