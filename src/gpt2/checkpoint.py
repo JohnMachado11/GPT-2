@@ -106,6 +106,18 @@ def save_best(run_dir, model, step, val_loss):
     )
 
 
+def save_snapshot(run_dir, model, steps_done):
+    # A copy of the weights partway through training: snapshots/step_00500.pt is the model after 500 steps
+    # (step_00000.pt: before any). Unlike best.pt and last.pt, nothing later in the run replaces it -- only a
+    # resume that goes back over the same step saves it again, so every snapshot comes from the same run as the
+    # finished model. (On a GPU, steps run twice can differ in the last decimals.) It counts steps DONE, while
+    # best.pt and last.pt record the last step's number, from 0: step_00500.pt matches a last.pt saved after
+    # step 499. load_checkpoint loads it.
+    ensure_finite(model)
+    save_atomic({"config": asdict(model.config), "model_state": model.state_dict(), "steps_done": steps_done},
+                Path(run_dir) / "snapshots" / f"step_{steps_done:05d}.pt")
+
+
 def save_last(run_dir, model, optimizer, step, train_batches, history, settings):
     # EVERYTHING needed to continue the run from this step.
     ensure_finite(model, optimizer)

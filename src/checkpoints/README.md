@@ -9,10 +9,12 @@ gpt2_L2_D128_6.8M_20261018-122043/
   best.pt       weights at the LOWEST validation loss so far  -> the model to keep and query
   last.pt       everything needed to continue the run         -> what a resume loads
   loss.png      the training-vs-validation loss curve, drawn at the end
+  snapshots/    copies of the weights along the way (if switched on) -> for looking back at training
 ```
 
 **`last.pt`** holds the weights, the optimizer's state (momentum, bumpiness, step count), the training
-step, the data reader's position, the random-number state, the loss history, and the training settings.
+step, the data reader's position, the random-number state, the loss and gradient-norm history, and the
+training settings.
 It's saved every `checkpoint_interval` steps and always at the end of the run.
 
 **`best.pt`** holds the weights and the model's config, plus the step and validation loss they came
@@ -20,20 +22,27 @@ from. It's saved whenever validation loss hits a new low (validation runs every 
 at the final step), so a run that overfits at the end still keeps its best version. A run trained
 without validation has no `best.pt`; its `last.pt` is used instead.
 
-Every `best.pt` / `last.pt` save writes a temporary file first and then renames it into place, so a
-crash or disconnect in the middle of a save leaves the previous checkpoint intact. And a save is
-refused outright if the weights (or, for `last.pt`, the optimizer's running averages) contain NaN or
-inf, so a broken run can never overwrite a good one. A save stopped by an error or Ctrl-C deletes its
-temporary file; a hard kill (out of memory, a preempted cloud machine, a power cut) can leave a
-`last.pt.tmp` behind, which is harmless -- nothing loads it, and the next save overwrites it.
+**`snapshots/`** (GPT-2 runs with `save_snapshots = True` in their settings file) holds a copy of the
+weights after each of the `snapshot_steps`: `step_00500.pt` is the model after 500 steps, and
+`step_00000.pt` the one before any. Unlike `best.pt` and `last.pt`, training never replaces them as it
+goes on. Only a resume that goes back over a snapshot's step saves it again, from the run that continues.
+They count steps done, while `best.pt` and `last.pt` record the last step's number, counted from 0:
+`step_00500.pt` has the same weights as a `last.pt` saved after step 499.
+
+Every save (`best.pt`, `last.pt` or a snapshot) writes a temporary file first and then renames it into
+place, so a crash or disconnect in the middle of a save leaves the previous checkpoint intact. And a
+save is refused outright if the weights (or, for `last.pt`, the optimizer's running averages) contain
+NaN or inf, so a broken run can never overwrite a good one. A save stopped by an error or Ctrl-C
+deletes its temporary file; a hard kill (out of memory, a preempted cloud machine, a power cut) can
+leave a `last.pt.tmp` behind, which is harmless -- nothing loads it, and the next save overwrites it.
 
 The all-or-nothing rename needs the run folder on the machine's own disk. A network-mounted folder
 (Google Drive, a cloud bucket) may not rename all-or-nothing, so train into a local folder and copy the
 run folder off.
 
 > **Nothing in this folder is committed** except this README (see `.gitignore`). Run folders get big:
-> for GPT-2 small, `best.pt` is ~0.5 GB and `last.pt` ~1.5 GB (the optimizer keeps two extra numbers per
-> weight). Your trained models stay on your machine.
+> for GPT-2 small, `best.pt` is ~0.5 GB, `last.pt` ~1.5 GB (the optimizer keeps two extra numbers per
+> weight) and each snapshot ~0.5 GB. Your trained models stay on your machine.
 
 ## How to read a folder name
 
@@ -92,4 +101,5 @@ a specific one in your own code, pass the folder:
 ```python
 from gpt2.checkpoint import load_checkpoint
 model = load_checkpoint("src/checkpoints/gpt2_L2_D128_6.8M_20261018-122043")   # its best.pt
+model = load_checkpoint("src/checkpoints/gpt2-run/snapshots/step_02000.pt")      # a GPT-2 run, after 2000 steps
 ```

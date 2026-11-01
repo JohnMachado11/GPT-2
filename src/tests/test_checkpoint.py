@@ -426,7 +426,7 @@ def test_resume_never_overwrites_a_better_best_pt(tmp_path):
     run = tmp_path / "run"
     model, optimizer = make_run()
     batches = RandomWindows(DATA, 4, 8)
-    history = {"steps": [0], "train_loss": [4.0], "val_steps": [0], "val_loss": [9.0]}
+    history = {"steps": [0], "train_loss": [4.0], "gradient_norm": [1.0], "val_steps": [0], "val_loss": [9.0]}
     save_last(run, model, optimizer, 0, batches, history, settings_for(batches, num_steps=6))   # older: best 9.0
     save_best(run, model, step=3, val_loss=0.5)                                                  # newer: 0.5
 
@@ -726,13 +726,15 @@ def test_a_compiled_run_trains_the_same_and_saves_checkpoints_a_plain_model_resu
     model, optimizer = make_run(dropout=0.0)
     with pytest.raises(KeyboardInterrupt):
         run_train(model, optimizer, DisconnectAfter(DATA, 4, 8, batches_before_disconnect=7), tmp_path / "compiled",
-                  num_steps=10, compile_model=True)
+                  num_steps=10, compile_model=True, snapshot_steps=[0, 4])
     # the compiled run really compiled it, and ran everything through it: 7 training steps, and validation
     # at steps 0 and 5 (20 batches each)
     assert [counted.compiled._orig_mod for counted in compiled_models] == [model]
     assert compiled_models[0].calls == 7 + 2 * 20
     saved = torch.load(tmp_path / "compiled" / "last.pt")["model_state"]
     assert not any(name.startswith("_orig_mod") for name in saved)        # the plain names, not the wrapper's
+    for name in ["step_00000.pt", "step_00004.pt"]:                        # snapshots too: plain names, so they load
+        load_checkpoint(tmp_path / "compiled" / "snapshots" / name)
     model, optimizer = make_run(dropout=0.0)                               # a plain model picks it up
     compiled = run_train(model, optimizer, RandomWindows(DATA, 4, 8), tmp_path / "compiled", num_steps=10)
     assert compiled == plain
