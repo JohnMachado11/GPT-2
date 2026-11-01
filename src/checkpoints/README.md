@@ -14,7 +14,9 @@ gpt2_L2_D128_6.8M_20261018-122043/
 
 **`last.pt`** holds the weights, the optimizer's state (momentum, bumpiness, step count), the training
 step, the data reader's position, the random-number state, the loss and gradient-norm history, and the
-training settings.
+training settings. The gradient norms are kept for every step, in total and for each part of the model
+(`history["gradient_norm_by_part"]["blocks.3.attn"]` is block 3's attention), to look back at where in the
+model training pushed hardest.
 It's saved every `checkpoint_interval` steps and always at the end of the run.
 
 **`best.pt`** holds the weights and the model's config, plus the step and validation loss they came

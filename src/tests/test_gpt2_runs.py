@@ -86,6 +86,8 @@ def test_trains_exactly_one_pass_over_the_train_shards(tmp_path, tiny, capsys):
     assert sorted(path.name for path in (tmp_path / "run" / "snapshots").iterdir()) == ["step_00000.pt", "step_00004.pt"]
     assert "| snapshots on" in output
     assert len(last["history"]["gradient_norm"]) == num_steps
+    by_part = last["history"]["gradient_norm_by_part"]     # 2 embeddings, the 1 block's 4 parts, the final norm
+    assert len(by_part) == 7 and all(len(norms) == num_steps for norms in by_part.values())
 
     # the validation checks scored the VAL shards: the final model, scored there again, gets the last val loss
     model = load_checkpoint(tmp_path / "run" / "last.pt")

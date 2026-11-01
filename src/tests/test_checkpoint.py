@@ -426,7 +426,8 @@ def test_resume_never_overwrites_a_better_best_pt(tmp_path):
     run = tmp_path / "run"
     model, optimizer = make_run()
     batches = RandomWindows(DATA, 4, 8)
-    history = {"steps": [0], "train_loss": [4.0], "gradient_norm": [1.0], "val_steps": [0], "val_loss": [9.0]}
+    history = {"steps": [0], "train_loss": [4.0], "gradient_norm": [1.0], "gradient_norm_by_part": {},
+               "val_steps": [0], "val_loss": [9.0]}
     save_last(run, model, optimizer, 0, batches, history, settings_for(batches, num_steps=6))   # older: best 9.0
     save_best(run, model, step=3, val_loss=0.5)                                                  # newer: 0.5
 

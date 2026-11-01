@@ -42,11 +42,11 @@ print_interval = 10         # print a progress line every this many steps (and a
 
 # --- copies of the weights along the way ---
 # With save_snapshots on, the run folder's snapshots/ keeps a copy of the weights after each of snapshot_steps
-# (0 = before training): 0, 50, 100, 250, then every 500 up to 18,500, 41 in all -- more early, where the model
-# changes fastest. ~0.5 GB each, ~20 GB in all -- unlike best.pt and last.pt, nothing replaces them as training goes
-# on. The weights after the last step are in last.pt.
+# (0 = before training): 0, 50, then every 100 up to 18,700, 189 in all -- close enough together to see when the
+# model picks something up. ~0.5 GB each, ~94 GB in all -- unlike best.pt and last.pt, nothing replaces them as
+# training goes on. The weights after the last step are in last.pt.
 save_snapshots = False      # True: keep them, to look back at how the model learned (off by default, for the space)
-snapshot_steps = [0, 50, 100, 250] + list(range(500, 19000, 500))
+snapshot_steps = [0, 50] + list(range(100, 18800, 100))
 
 # --- two speed switches: they change how fast it trains, not what it learns ---
 fast_attention = True       # True: the same math, computed faster -- FlashAttention on recent NVIDIA GPUs
