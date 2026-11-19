@@ -12,7 +12,7 @@ This code trained GPT-2 small from scratch and achieved a lower validation loss 
 trained on FineWeb-Edu and OpenAI's didn't, so the comparison favors this model and isn't a measure of which is better
 overall.
 
-[How I trained it (blog post)](https://johnmachado.dev/blog/how-i-trained-gpt2-small/) · [The numbers ↓](#train-gpt-2-small-from-scratch) ·
+[How I trained it (blog post)](https://johnmachado.dev/blog/how-i-trained-gpt2-small/) · [The exact moments GPT-2 small learns (blog post)](https://johnmachado.dev/blog/what-gpt2-learns/) · [The numbers ↓](#train-gpt-2-small-from-scratch) ·
 [The model on Hugging Face](https://huggingface.co/John-Machado/gpt2-small-fineweb-edu)
 
 - **Train GPT-2 small (124M) from scratch** on 10B tokens of FineWeb-Edu, on one cloud GPU, and score it against OpenAI's.
